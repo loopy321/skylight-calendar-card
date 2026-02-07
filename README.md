@@ -116,6 +116,31 @@ This mode is perfect for:
 - Custom date ranges (3 days, 10 days, etc.)
 - Scrolling through time in custom increments
 
+### Rolling Weeks Mode
+
+Instead of showing a fixed calendar month, you can show "this week + N weeks":
+
+```yaml
+type: custom:skylight-calendar-card
+title: Next 2 Weeks
+entities:
+  - calendar.family
+view_mode: month
+rolling_weeks: 1  # Show this week + 1 more week = 2 weeks total
+```
+
+This mode is perfect for:
+- Always showing upcoming weeks regardless of month boundaries
+- Custom week ranges (2 weeks, 4 weeks, etc.)
+- Rolling planning view that updates daily
+
+**Examples:**
+```yaml
+rolling_weeks: 0  # Show only current week (7 days)
+rolling_weeks: 1  # Show current + next week (14 days)
+rolling_weeks: 3  # Show current + 3 more weeks (28 days)
+```
+
 ## Configuration Options
 
 | Option | Type | Default | Description |
@@ -128,138 +153,17 @@ This mode is perfect for:
 | `first_day_of_week` | integer | `0` | First day of week (0 = Sunday, 1 = Monday, etc.) |
 | `week_days` | list | `[0,1,2,3,4,5,6]` | Days to show in week views (0=Sun, 6=Sat) |
 | `rolling_days` | integer | `null` | Show today + N days (alternative to week_days) |
+| `rolling_weeks` | integer | `null` | Show this week + N weeks in month view |
 | `week_start_hour` | integer | `8` | Start hour for week-standard view (0-23) |
 | `week_end_hour` | integer | `21` | End hour for week-standard view (0-23) |
 | `height_scale` | float | `1.0` | Height scaling factor (0.5-2.0, affects schedule view) |
 | `compact_height` | boolean | `false` | Fit calendar to screen height with scroll |
 | `compact_header` | boolean | `false` | Single-row header with inline badges |
 | `show_week_numbers` | boolean | `false` | Show week numbers on the left side |
+| `max_events` | integer | `100` | Maximum number of events to load |
 | `enable_event_management` | boolean | `true` | Enable event creation features |
 | `readonly_calendars` | list | `[]` | Calendar entities that should not allow modifications |
-| `max_events` | integer | `100` | Maximum number of events to load |
 | `colors` | map | auto | Custom colors for each calendar entity |
-
-## Calendar Entity Setup
-
-This card requires Home Assistant calendar entities. You can integrate calendars from:
-
-- **Google Calendar**: [Integration Guide](https://www.home-assistant.io/integrations/google/)
-- **CalDAV** (Apple Calendar, Nextcloud, etc.): [Integration Guide](https://www.home-assistant.io/integrations/caldav/)
-- **Local Calendar**: [Integration Guide](https://www.home-assistant.io/integrations/local_calendar/)
-- **Office 365**: [Integration Guide](https://www.home-assistant.io/integrations/microsoft/)
-
-After setting up the integration, calendar entities will be automatically created (e.g., `calendar.personal`, `calendar.work`).
-
-## Features in Detail
-
-### View Modes
-
-The card supports three different view modes that you can switch between using the buttons in the header:
-
-#### Month View
-The traditional calendar grid showing a full month at a time. Events are displayed as color-coded blocks within each day. Perfect for getting an overview of the entire month.
-
-```yaml
-view_mode: month
-```
-
-#### Week Compact View
-Shows each day of the week as a column with events stacked vertically. This view is ideal for seeing all your week's events at a glance without the detailed timeline. You can configure which days to show:
-
-```yaml
-view_mode: week-compact
-week_days: [1, 2, 3, 4, 5]  # Monday-Friday only
-```
-
-#### Week Standard (Schedule) View
-Displays a detailed timeline view with hours on the left and days across the top. Events are positioned at their exact time slots. Perfect for detailed day planning:
-
-```yaml
-view_mode: week-standard
-week_start_hour: 8   # Start at 8am
-week_end_hour: 21    # End at 9pm
-week_days: [1, 2, 3, 4, 5]  # Weekdays only
-```
-
-### Color-Coded Events
-
-Each calendar entity can have its own color, making it easy to distinguish between different types of events:
-
-```yaml
-colors:
-  calendar.personal: '#FF6B6B'    # Red for personal events
-  calendar.work: '#4ECDC4'        # Teal for work events
-  calendar.family: '#45B7D1'      # Blue for family events
-  calendar.kids: '#FFA07A'        # Orange for kids' activities
-```
-
-### Customizing Header Color
-
-By default, the header automatically matches your Home Assistant theme's primary color using `var(--primary-color)`. You can override this with any custom color or gradient:
-
-**Solid Colors:**
-```yaml
-header_color: '#1e40af'  # Solid blue
-header_color: '#059669'  # Solid green
-header_color: '#dc2626'  # Solid red
-```
-
-**Gradients:**
-```yaml
-# Blue gradient
-header_color: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)'
-
-# Green gradient
-header_color: 'linear-gradient(135deg, #065f46 0%, #10b981 100%)'
-
-# Orange/Red gradient
-header_color: 'linear-gradient(135deg, #ea580c 0%, #dc2626 100%)'
-
-# Teal gradient
-header_color: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)'
-
-# Classic purple gradient (original default)
-header_color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-```
-
-**Use Other Theme Variables:**
-```yaml
-# Use secondary color
-header_color: 'var(--secondary-color)'
-
-# Use accent color
-header_color: 'var(--accent-color)'
-
-# Dark background
-header_color: 'var(--card-background-color)'
-```
-
-**Restore Default:**
-```yaml
-# Explicitly set to match theme (this is already the default)
-header_color: 'var(--primary-color)'
-```
-
-### Event Details Modal
-
-Click on any event to see:
-- Event title
-- Description
-- Start and end time
-- Location (if specified)
-
-### Day View
-
-Click on any day to see all events for that day in an organized list.
-
-### Today Highlight
-
-The current day is automatically highlighted with a blue background and the date number is shown in a blue circle.
-
-### Navigation
-
-- Click the arrow buttons to move between months
-- Click "Today" to jump back to the current month
 
 ## Event Management
 
@@ -352,21 +256,20 @@ readonly_calendars:
 - ⚠️ **CalDAV** - Support varies by server (Nextcloud, iCloud, etc.)
 - ⚠️ **Office 365** - Create works; edit/delete support varies
 
-**Limited Support (Create Only):**
-- ⚠️ **Google Calendar** - **Create works**, but **edit/delete NOT supported** through Home Assistant
-  - **Why?** The Google Calendar integration doesn't expose the UPDATE/DELETE services
-  - **Workaround:** Use the Google Calendar app or website to edit/delete events
-  - Events created through this card can still be viewed in Home Assistant
-  - You'll see an informational message when viewing Google Calendar events
+**Partial Support (Create, Delete only):**
+- ⚠️ **Google Calendar** - **Create and Delete work!** (Delete uses WebSocket API)
+  - **Why no edit?** Home Assistant doesn't expose a WebSocket update API for Google Calendar
+  - **Workaround for editing:** Use the Google Calendar app or website
+  - Events created through this card can be deleted from Home Assistant
+  - This is a limitation of Home Assistant's Google Calendar integration, not this card
 
 **How Editing Works (Non-Google Calendars):**
 1. **UPDATE Service Available** - Event is modified directly (fastest, preserves UID)
 2. **Fallback Method** - Event is deleted and recreated (works on calendars with delete+create)
 
-**How Deletion Works (Non-Google Calendars):**
-- Uses the `calendar.delete_event` service
-- Only available if calendar integration supports deletion
-- Delete button is automatically hidden for calendars that don't support it
+**How Deletion Works:**
+1. **WebSocket API** (Primary) - Works for Google Calendar and most modern integrations
+2. **Service Call** (Fallback) - Works for Local Calendar and traditional integrations
 
 **Note:** The card automatically detects which operations each calendar supports and shows/hides buttons accordingly. If you don't see an Edit or Delete button, your calendar integration doesn't support those operations or the event is missing required information (UID).
 
@@ -394,7 +297,166 @@ readonly_calendars:
   - calendar.holidays  # Can view but not create events on holidays calendar
 ```
 
+## Calendar Entity Setup
+
+This card requires Home Assistant calendar entities. You can integrate calendars from:
+
+- **Google Calendar**: [Integration Guide](https://www.home-assistant.io/integrations/google/)
+- **CalDAV** (Apple Calendar, Nextcloud, etc.): [Integration Guide](https://www.home-assistant.io/integrations/caldav/)
+- **Local Calendar**: [Integration Guide](https://www.home-assistant.io/integrations/local_calendar/)
+- **Office 365**: [Integration Guide](https://www.home-assistant.io/integrations/microsoft/)
+
+After setting up the integration, calendar entities will be automatically created (e.g., `calendar.personal`, `calendar.work`).
+
+## Features in Detail
+
+### View Modes
+
+The card supports three different view modes that you can switch between using the buttons in the header:
+
+#### Month View
+The traditional calendar grid showing a full month at a time. Events are displayed as color-coded blocks within each day. Perfect for getting an overview of the entire month.
+
+```yaml
+view_mode: month
+```
+
+**Click Behavior:**
+- Click on any day to create a new event on that date
+- Click on an event to view its details
+
+#### Week Compact View
+Shows each day of the week as a column with events stacked vertically. This view is ideal for seeing all your week's events at a glance without the detailed timeline. You can configure which days to show:
+
+```yaml
+view_mode: week-compact
+week_days: [1, 2, 3, 4, 5]  # Monday-Friday only
+```
+
+**Click Behavior:**
+- Click on the day header to create a new event on that day
+- Click on an event to view its details
+
+#### Week Standard (Schedule) View
+Displays a detailed timeline view with hours on the left and days across the top. Events are positioned at their exact time slots. Perfect for detailed day planning:
+
+```yaml
+view_mode: week-standard
+week_start_hour: 8   # Start at 8am
+week_end_hour: 21    # End at 9pm
+week_days: [1, 2, 3, 4, 5]  # Weekdays only
+```
+
+**Click Behavior:**
+- Click on any time slot to create a new event at that specific time
+- Click on the day header to create a new event on that day (time defaults to next half hour)
+- Click on an event to view its details
+
+### Color-Coded Events
+
+Each calendar entity can have its own color, making it easy to distinguish between different types of events:
+
+```yaml
+colors:
+  calendar.personal: '#FF6B6B'    # Red for personal events
+  calendar.work: '#4ECDC4'        # Teal for work events
+  calendar.family: '#45B7D1'      # Blue for family events
+  calendar.kids: '#FFA07A'        # Orange for kids' activities
+```
+
+### Customizing Header Color
+
+By default, the header automatically matches your Home Assistant theme's primary color using `var(--primary-color)`. You can override this with any custom color or gradient:
+
+**Solid Colors:**
+```yaml
+header_color: '#1e40af'  # Solid blue
+header_color: '#059669'  # Solid green
+header_color: '#dc2626'  # Solid red
+```
+
+**Gradients:**
+```yaml
+# Blue gradient
+header_color: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)'
+
+# Green gradient
+header_color: 'linear-gradient(135deg, #065f46 0%, #10b981 100%)'
+
+# Orange/Red gradient
+header_color: 'linear-gradient(135deg, #ea580c 0%, #dc2626 100%)'
+
+# Teal gradient
+header_color: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)'
+
+# Classic purple gradient (original default)
+header_color: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+```
+
+**Use Other Theme Variables:**
+```yaml
+# Use secondary color
+header_color: 'var(--secondary-color)'
+
+# Use accent color
+header_color: 'var(--accent-color)'
+
+# Dark background
+header_color: 'var(--card-background-color)'
+```
+
+**Restore Default:**
+```yaml
+# Explicitly set to match theme (this is already the default)
+header_color: 'var(--primary-color)'
+```
+
+### Event Details Modal
+
+Click on any event to see:
+- Event title
+- Description
+- Start and end time
+- Location (if specified)
+- Calendar badge showing which calendar it belongs to
+
+### Day View
+
+Click on any day to:
+- **Create a new event** on that day (if event management is enabled)
+- **View all events** for that day (if event management is disabled)
+
+### Today Highlight
+
+The current day is automatically highlighted with a blue background and the date number is shown in a blue circle.
+
+### Navigation
+
+- Click the arrow buttons to move between months/weeks
+- Click "Today" to jump back to the current date
+
 ## Tips and Tricks
+
+### Quick Event Creation
+
+The fastest ways to create events:
+
+```yaml
+# For quick daily tasks
+type: custom:skylight-calendar-card
+title: Today's Tasks
+entities:
+  - calendar.tasks
+default_view: week-compact
+rolling_days: 0  # Show only today
+enable_event_management: true
+```
+
+**Workflow:**
+1. Click anywhere on today's column
+2. Enter event title
+3. Toggle "All-day" if needed
+4. Click "Create Event"
 
 ### Organizing Family Schedules
 
@@ -462,6 +524,31 @@ rolling_days: 0  # Today only
 
 Navigation buttons will advance by the number of days shown (rolling_days + 1).
 
+### Using Rolling Weeks Mode
+
+Perfect for planning views that update daily:
+
+```yaml
+# Show next 2 weeks
+view_mode: month
+rolling_weeks: 1  # This week + 1 = 2 weeks
+
+# Show next 4 weeks (monthly planning)
+view_mode: month
+rolling_weeks: 3  # This week + 3 = 4 weeks
+
+# Show only this week (7-day grid)
+view_mode: month
+rolling_weeks: 0  # This week only
+```
+
+Navigation buttons will advance by the number of weeks shown (rolling_weeks + 1).
+
+**Comparison:**
+- **Standard Month View**: Shows entire calendar month (varies 28-31 days)
+- **Rolling Weeks Mode**: Shows consistent number of weeks starting from today
+- **Rolling Days Mode**: Shows consistent number of days starting from today
+
 ### Setting Default View
 
 Load the card in your preferred view automatically:
@@ -505,16 +592,6 @@ You can add multiple cards for different views:
 3. Verify that the calendar has events in the current month
 4. Check the Home Assistant logs for errors
 
-### Colors Not Applied
-
-Make sure you're using valid hex color codes (e.g., `#FF6B6B`, not `red`)
-
-### Card Not Loading
-
-1. Clear your browser cache
-2. Check browser console for errors (F12)
-3. Verify the resource is properly added to Lovelace
-
 ### Cannot Create Events
 
 1. Verify `enable_event_management: true` in your configuration
@@ -543,10 +620,13 @@ If you don't see Edit or Delete buttons on events:
 
 ### Google Calendar: "Please use the Google Calendar app or website"
 
-This is **expected behavior**. The Home Assistant Google Calendar integration does not expose the services needed to edit or delete events. This is a limitation of the integration.
+**For editing**: This is expected behavior. The Home Assistant Google Calendar integration does not support editing events. You must use the official Google Calendar app or https://calendar.google.com.
+
+**For deleting**: You should NOT see this message anymore - deletion works via WebSocket API! If you see this, please report it as a bug.
 
 **Solutions:**
-- **To edit/delete**: Use the official Google Calendar app or https://calendar.google.com
+- **To delete**: Use the Delete button in the event details (this now works!)
+- **To edit**: Use the official Google Calendar app or https://calendar.google.com
 - **To create**: You can still create events through this card - they will appear in Google Calendar
 - **Alternative**: Use a Local Calendar or CalDAV calendar if you need full editing support in Home Assistant
 
@@ -569,6 +649,16 @@ This means all your calendars are either:
 1. Remove calendars from `readonly_calendars` list
 2. Verify your calendar integration supports creation
 3. Add a Local Calendar for testing
+
+### Colors Not Applied
+
+Make sure you're using valid hex color codes (e.g., `#FF6B6B`, not `red`)
+
+### Card Not Loading
+
+1. Clear your browser cache
+2. Check browser console for errors (F12)
+3. Verify the resource is properly added to Lovelace
 
 ## Development
 

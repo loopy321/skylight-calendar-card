@@ -29,6 +29,7 @@ class SkylightCalendarCard extends HTMLElement {
       default_view: config.default_view || config.view_mode || 'month', // Default view on load
       week_days: config.week_days || [0, 1, 2, 3, 4, 5, 6], // Which days to show in week view
       rolling_days: config.rolling_days || null, // If set, show current day + N days instead of week_days
+      rolling_weeks: config.rolling_weeks || null, // If set, show current week + N weeks in month view
       week_start_hour: config.week_start_hour || 8, // Start hour for week-standard view
       week_end_hour: config.week_end_hour || 21, // End hour for week-standard view (9pm)
       compact_height: config.compact_height || false, // Fit to screen height
@@ -1326,6 +1327,30 @@ class SkylightCalendarCard extends HTMLElement {
 
   getPeriodLabel() {
     if (this._viewMode === 'month') {
+      // If rolling_weeks mode is active, show date range
+      if (this._config.rolling_weeks !== null) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const currentDay = today.getDay();
+        const diff = (currentDay - this._config.firstDayOfWeek + 7) % 7;
+        const weekStart = new Date(today);
+        weekStart.setDate(today.getDate() - diff);
+        
+        const totalWeeks = this._config.rolling_weeks + 1;
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + (totalWeeks * 7) - 1);
+        
+        if (weekStart.getMonth() === weekEnd.getMonth() && weekStart.getFullYear() === weekEnd.getFullYear()) {
+          return `${this.getMonthName(weekStart.getMonth())} ${weekStart.getDate()}-${weekEnd.getDate()}, ${weekStart.getFullYear()}`;
+        } else if (weekStart.getFullYear() === weekEnd.getFullYear()) {
+          return `${this.getMonthName(weekStart.getMonth())} ${weekStart.getDate()} - ${this.getMonthName(weekEnd.getMonth())} ${weekEnd.getDate()}, ${weekStart.getFullYear()}`;
+        } else {
+          return `${this.getMonthName(weekStart.getMonth())} ${weekStart.getDate()}, ${weekStart.getFullYear()} - ${this.getMonthName(weekEnd.getMonth())} ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`;
+        }
+      }
+      
+      // Standard month view
       const month = this._currentDate.getMonth();
       const year = this._currentDate.getFullYear();
       return `${this.getMonthName(month)} ${year}`;
@@ -1717,6 +1742,12 @@ class SkylightCalendarCard extends HTMLElement {
   renderDays() {
     const year = this._currentDate.getFullYear();
     const month = this._currentDate.getMonth();
+    
+    // If rolling_weeks is set, show current week + N additional weeks
+    if (this._config.rolling_weeks !== null && this._viewMode === 'month') {
+      return this.renderRollingWeeks();
+    }
+    
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const daysInPrevMonth = new Date(year, month, 0).getDate();
@@ -1750,6 +1781,36 @@ class SkylightCalendarCard extends HTMLElement {
     for (let day = 1; day <= remainingCells; day++) {
       const date = new Date(year, month + 1, day);
       html += this.renderDay(day, date, true);
+    }
+    
+    return html;
+  }
+
+  renderRollingWeeks() {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Find the start of the current week based on firstDayOfWeek
+    const currentDay = today.getDay();
+    const diff = (currentDay - this._config.firstDayOfWeek + 7) % 7;
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - diff);
+    
+    // Calculate total days to show: (rolling_weeks + 1) * 7 days
+    const totalWeeks = this._config.rolling_weeks + 1;
+    const totalDays = totalWeeks * 7;
+    
+    let html = '';
+    
+    // Render all days in the rolling weeks
+    for (let i = 0; i < totalDays; i++) {
+      const date = new Date(weekStart);
+      date.setDate(weekStart.getDate() + i);
+      
+      // Check if this day is in a different month than the reference date (for styling)
+      const isOtherMonth = date.getMonth() !== this._currentDate.getMonth();
+      
+      html += this.renderDay(date.getDate(), date, isOtherMonth);
     }
     
     return html;
@@ -1891,7 +1952,14 @@ class SkylightCalendarCard extends HTMLElement {
     
     prevButton?.addEventListener('click', () => {
       if (this._viewMode === 'month') {
-        this._currentDate.setMonth(this._currentDate.getMonth() - 1);
+        if (this._config.rolling_weeks !== null) {
+          // In rolling weeks mode, go back by the number of weeks shown
+          const weeksToAdvance = this._config.rolling_weeks + 1;
+          this._currentDate.setDate(this._currentDate.getDate() - (weeksToAdvance * 7));
+        } else {
+          // Standard month navigation
+          this._currentDate.setMonth(this._currentDate.getMonth() - 1);
+        }
       } else {
         // In rolling_days mode, advance by rolling_days + 1, otherwise by 7
         const daysToAdvance = this._config.rolling_days !== null 
@@ -1908,7 +1976,14 @@ class SkylightCalendarCard extends HTMLElement {
     
     nextButton?.addEventListener('click', () => {
       if (this._viewMode === 'month') {
-        this._currentDate.setMonth(this._currentDate.getMonth() + 1);
+        if (this._config.rolling_weeks !== null) {
+          // In rolling weeks mode, go forward by the number of weeks shown
+          const weeksToAdvance = this._config.rolling_weeks + 1;
+          this._currentDate.setDate(this._currentDate.getDate() + (weeksToAdvance * 7));
+        } else {
+          // Standard month navigation
+          this._currentDate.setMonth(this._currentDate.getMonth() + 1);
+        }
       } else {
         // In rolling_days mode, advance by rolling_days + 1, otherwise by 7
         const daysToAdvance = this._config.rolling_days !== null 
@@ -2591,6 +2666,35 @@ class SkylightCalendarCard extends HTMLElement {
       throw new Error('Home Assistant not available');
     }
     
+    // Try WebSocket API first (works for Google Calendar and others)
+    // This is the official Calendar WebSocket API that the HA Calendar UI uses
+    try {
+      if (this._hass.connection && this._hass.connection.sendMessagePromise && uid) {
+        const payload = {
+          type: 'calendar/event/delete',
+          entity_id: calendarId,
+          uid: uid
+        };
+        
+        // Add recurrence_id if deleting a specific instance
+        if (recurrenceId) {
+          payload.recurrence_id = recurrenceId;
+        }
+        
+        // Add recurrence_range if deleting this and future events
+        if (recurrenceRange) {
+          payload.recurrence_range = recurrenceRange;
+        }
+        
+        await this._hass.connection.sendMessagePromise(payload);
+        return; // Success via WebSocket
+      }
+    } catch (wsError) {
+      console.log('WebSocket delete failed, trying service call:', wsError.message);
+      // Fall through to service call attempt
+    }
+    
+    // Fallback to service call (works for Local Calendar and some others)
     const serviceData = {
       entity_id: calendarId,
       uid: uid
@@ -2601,7 +2705,7 @@ class SkylightCalendarCard extends HTMLElement {
       serviceData.recurrence_id = recurrenceId;
     }
     
-    // Add recurrence_range if deleting this and future events
+    // Add recurrence_range if deleting this and future events  
     if (recurrenceRange) {
       serviceData.recurrence_range = recurrenceRange;
     }
@@ -2609,7 +2713,7 @@ class SkylightCalendarCard extends HTMLElement {
     try {
       await this._hass.callService('calendar', 'delete_event', serviceData);
     } catch (error) {
-      console.error('Delete service call failed:', error);
+      console.error('Service call delete also failed:', error);
       throw new Error(error.message || 'Failed to delete event');
     }
   }
@@ -2824,15 +2928,15 @@ class SkylightCalendarCard extends HTMLElement {
     // 1. Event management enabled
     // 2. Calendar not read-only
     // 3. Event has a UID (required for modifications)
-    // 4. Not a Google Calendar (they don't support these operations via HA)
     const hasUID = event.uid !== undefined && event.uid !== null && event.uid !== '';
     const canModify = this._config.enable_event_management && 
                      !capabilities.isReadonly && 
-                     hasUID &&
-                     !capabilities.isGoogleCalendar;
+                     hasUID;
     
-    const canEdit = canModify;
-    const canDelete = canModify && capabilities.canDelete;
+    // WebSocket delete works for Google Calendar!
+    // Only editing doesn't work (no WebSocket update API)
+    const canEdit = canModify && !capabilities.isGoogleCalendar;
+    const canDelete = canModify; // WebSocket delete works for all calendars including Google
     
     content.innerHTML = `
       <div class="modal-header">
@@ -2892,7 +2996,7 @@ class SkylightCalendarCard extends HTMLElement {
         
         ${!canModify && !capabilities.isReadonly && capabilities.isGoogleCalendar ? `
           <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 12px; margin-top: 16px; font-size: 13px; color: #92400e;">
-            <strong>ℹ️ Google Calendar Limitation:</strong> Editing and deleting events is not currently supported for Google Calendar through Home Assistant. Please use the Google Calendar app or website to modify this event.
+            <strong>ℹ️ Google Calendar Limitation:</strong> Editing events is not currently supported for Google Calendar through Home Assistant. You can delete events from here, but to edit please use the Google Calendar app or website.
           </div>
         ` : ''}
         
