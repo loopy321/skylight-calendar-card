@@ -23,6 +23,8 @@ A beautiful, customizable calendar card for Home Assistant that mimics the desig
 - 📏 **Height Control**: Adjust vertical scale or enable compact mode to fit screen
 - 🎛️ **Default View**: Set which view loads by default (month/week/schedule)
 - 📏 **Compact Header**: Optional single-row header layout for space savings
+- **Multiple Language Support**: Supports English, French, and German, with an extensible framework for adding more languages
+- **Locale Support**: Supports various locales for setting days of week, month names, etc
 
 ## Installation
 
@@ -164,6 +166,8 @@ rolling_weeks: 3  # Show current + 3 more weeks (28 days)
 | `enable_event_management` | boolean | `true` | Enable event creation features |
 | `readonly_calendars` | list | `[]` | Calendar entities that should not allow modifications |
 | `colors` | map | auto | Custom colors for each calendar entity |
+| `language` | string | `en` | Language for the strings |
+| `locale` | string | `en-US` | Optional locale. Will queue from language first, HASS setting second if not provided. |
 
 ## Event Management
 
