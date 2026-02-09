@@ -1,9 +1,6 @@
 {
   "name": "Skylight Calendar Card",
-  "render_readme": true,
-  "files": [
-    "skylight-calendar-card.js",
-    "translations"
-  ]
+  "content_in_root": true,
+  "filename": "skylight-calendar-card.js",
+  "render_readme": true
 }
-
