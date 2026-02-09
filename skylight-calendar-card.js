@@ -1,12 +1,12 @@
-import enTranslations from './translations/en.js';
+import enTranslations from './en.js';
 
 const DEFAULT_LANGUAGE = 'en';
 const LANGUAGE_CACHE = {
   en: enTranslations
 };
 const LANGUAGE_LOADERS = {
-  de: () => import('./translations/de.js'),
-  fr: () => import('./translations/fr.js')
+  de: () => import('./de.js'),
+  fr: () => import('./fr.js')
 };
 
 const normalizeLanguage = (language) => {
