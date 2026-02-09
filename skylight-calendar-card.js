@@ -1,13 +1,247 @@
-import enTranslations from './en.js';
+// ============================================================================
+// TRANSLATIONS
+// ============================================================================
+// To add a new language:
+// 1. Add a new entry to the TRANSLATIONS object below
+// 2. Set the locale (e.g., 'es-ES' for Spanish)
+// 3. Copy the strings from 'en' and translate each value
+// ============================================================================
+
+const TRANSLATIONS = {
+  en: {
+    locale: 'en-US',
+    strings: {
+      defaultTitle: 'Family Calendar',
+      addEvent: 'Add Event',
+      today: 'Today',
+      month: 'Month',
+      week: 'Week',
+      schedule: 'Schedule',
+      calendar: 'Calendar',
+      eventTitle: 'Event Title',
+      eventTitlePlaceholder: 'Team Meeting',
+      allDayEvent: 'All-day event',
+      start: 'Start',
+      end: 'End',
+      startDate: 'Start Date',
+      endDate: 'End Date',
+      location: 'Location',
+      locationPlaceholder: 'Conference Room A',
+      description: 'Description',
+      descriptionPlaceholder: 'Event details...',
+      cancel: 'Cancel',
+      createEvent: 'Create Event',
+      creating: 'Creating...',
+      editEvent: 'Edit Event',
+      saveChanges: 'Save Changes',
+      saving: 'Saving...',
+      delete: 'Delete',
+      deleting: 'Deleting...',
+      deleteEventTitle: 'Delete Event',
+      deleteRecurringEventTitle: 'Delete Recurring Event',
+      deleteEventConfirm: 'Are you sure you want to delete "{title}"? This action cannot be undone.',
+      deleteRecurringPrompt: '"{title}" is a recurring event. How would you like to delete it?',
+      deleteThisEventOnly: 'This event only',
+      deleteThisOccurrence: 'Delete just this occurrence',
+      deleteThisAndFutureEvents: 'This and future events',
+      deleteThisOccurrenceAndFuture: 'Delete this occurrence and all future occurrences',
+      deleteAllEvents: 'All events',
+      deleteEntireSeries: 'Delete the entire recurring series',
+      noEvents: 'No events',
+      allDay: 'All Day',
+      at: 'at',
+      duration: 'Duration',
+      attendees: 'Attendees',
+      recurrence: 'Recurrence',
+      recurringEvent: 'Recurring Event',
+      unknownAttendee: 'Unknown',
+      googleCalendarLimitationTitle: 'ℹ️ Google Calendar Limitation:',
+      googleCalendarLimitationBody: 'Editing events is not currently supported for Google Calendar through Home Assistant. You can delete events from here, but to edit please use the Google Calendar app or website.',
+      cannotModifyTitle: 'ℹ️ Cannot Modify:',
+      cannotModifyBody: 'This event is missing required information (UID) for editing or deletion. You may need to recreate it.',
+      untitledEvent: 'Untitled Event',
+      noWritableCalendars: 'No writable calendars available',
+      eventTitleRequired: 'Event title is required',
+      startEndDatesRequired: 'Start and end dates are required',
+      endDateBeforeStart: 'End date cannot be before start date',
+      startEndTimesRequired: 'Start and end times are required',
+      endTimeBeforeStart: 'End time must be after start time',
+      failedCreateEvent: 'Failed to create event. Please try again.',
+      failedUpdateEvent: 'Failed to update event. Please try again.',
+      failedDeleteEvent: 'Failed to delete event. Please try again.',
+      homeAssistantUnavailable: 'Home Assistant not available',
+      googleCalendarEditError: 'Google Calendar does not support editing events through Home Assistant. Please use the Google Calendar app or website.',
+      missingUidError: 'This event is missing required information (UID) and cannot be edited.',
+      calendarNoModifyError: 'This calendar does not support event modifications. Try creating a new event instead.',
+      createEventServiceError: 'Failed to create event',
+      deleteEventServiceError: 'Failed to delete event',
+      updateEventServiceError: 'Failed to update event. The calendar may not support modifications.',
+      durationHour: '{count} hour',
+      durationHours: '{count} hours',
+      durationMinute: '{count} minute',
+      durationMinutes: '{count} minutes',
+      moreEvents: '+{count} more'
+    }
+  },
+
+  fr: {
+    locale: 'fr-FR',
+    strings: {
+      defaultTitle: 'Calendrier familial',
+      addEvent: 'Ajouter un événement',
+      today: "Aujourd'hui",
+      month: 'Mois',
+      week: 'Semaine',
+      schedule: 'Planning',
+      calendar: 'Calendrier',
+      eventTitle: "Titre de l'événement",
+      eventTitlePlaceholder: "Réunion d'équipe",
+      allDayEvent: 'Événement sur toute la journée',
+      start: 'Début',
+      end: 'Fin',
+      startDate: 'Date de début',
+      endDate: 'Date de fin',
+      location: 'Lieu',
+      locationPlaceholder: 'Salle de conférence A',
+      description: 'Description',
+      descriptionPlaceholder: "Détails de l'événement...",
+      cancel: 'Annuler',
+      createEvent: 'Créer un événement',
+      creating: 'Création...',
+      editEvent: "Modifier l'événement",
+      saveChanges: 'Enregistrer les modifications',
+      saving: 'Enregistrement...',
+      delete: 'Supprimer',
+      deleting: 'Suppression...',
+      deleteEventTitle: "Supprimer l'événement",
+      deleteRecurringEventTitle: "Supprimer l'événement récurrent",
+      deleteEventConfirm: 'Voulez-vous vraiment supprimer "{title}" ? Cette action est irréversible.',
+      deleteRecurringPrompt: '"{title}" est un événement récurrent. Comment souhaitez-vous le supprimer ?',
+      deleteThisEventOnly: 'Cet événement uniquement',
+      deleteThisOccurrence: 'Supprimer uniquement cette occurrence',
+      deleteThisAndFutureEvents: 'Cet événement et les suivants',
+      deleteThisOccurrenceAndFuture: 'Supprimer cette occurrence et toutes les occurrences futures',
+      deleteAllEvents: 'Tous les événements',
+      deleteEntireSeries: 'Supprimer toute la série récurrente',
+      noEvents: 'Aucun événement',
+      allDay: 'Toute la journée',
+      at: 'à',
+      duration: 'Durée',
+      attendees: 'Participants',
+      recurrence: 'Récurrence',
+      recurringEvent: 'Événement récurrent',
+      unknownAttendee: 'Inconnu',
+      googleCalendarLimitationTitle: 'ℹ️ Limitation Google Agenda :',
+      googleCalendarLimitationBody: "La modification des événements n'est pas prise en charge pour Google Agenda via Home Assistant. Vous pouvez supprimer des événements ici, mais pour les modifier veuillez utiliser l'application ou le site Google Agenda.",
+      cannotModifyTitle: 'ℹ️ Impossible de modifier :',
+      cannotModifyBody: 'Cet événement ne contient pas les informations requises (UID) pour être modifié ou supprimé. Vous devrez peut-être le recréer.',
+      untitledEvent: 'Événement sans titre',
+      noWritableCalendars: 'Aucun calendrier modifiable disponible',
+      eventTitleRequired: "Le titre de l'événement est requis",
+      startEndDatesRequired: 'Les dates de début et de fin sont requises',
+      endDateBeforeStart: 'La date de fin ne peut pas être antérieure à la date de début',
+      startEndTimesRequired: 'Les heures de début et de fin sont requises',
+      endTimeBeforeStart: "L'heure de fin doit être après l'heure de début",
+      failedCreateEvent: "Impossible de créer l'événement. Veuillez réessayer.",
+      failedUpdateEvent: "Impossible de modifier l'événement. Veuillez réessayer.",
+      failedDeleteEvent: "Impossible de supprimer l'événement. Veuillez réessayer.",
+      homeAssistantUnavailable: "Home Assistant n'est pas disponible",
+      googleCalendarEditError: "Google Agenda ne permet pas la modification des événements via Home Assistant. Veuillez utiliser l'application ou le site Google Agenda.",
+      missingUidError: 'Cet événement ne contient pas les informations requises (UID) et ne peut pas être modifié.',
+      calendarNoModifyError: "Ce calendrier ne prend pas en charge les modifications d'événements. Essayez plutôt de créer un nouvel événement.",
+      createEventServiceError: "Impossible de créer l'événement",
+      deleteEventServiceError: "Impossible de supprimer l'événement",
+      updateEventServiceError: "Impossible de modifier l'événement. Le calendrier ne prend peut-être pas en charge les modifications.",
+      durationHour: '{count} heure',
+      durationHours: '{count} heures',
+      durationMinute: '{count} minute',
+      durationMinutes: '{count} minutes',
+      moreEvents: '+{count} de plus'
+    }
+  },
+
+  de: {
+    locale: 'de-DE',
+    strings: {
+      defaultTitle: 'Familienkalender',
+      addEvent: 'Termin hinzufügen',
+      today: 'Heute',
+      month: 'Monat',
+      week: 'Woche',
+      schedule: 'Zeitplan',
+      calendar: 'Kalender',
+      eventTitle: 'Terminname',
+      eventTitlePlaceholder: 'Team-Meeting',
+      allDayEvent: 'Ganztägiges Ereignis',
+      start: 'Beginn',
+      end: 'Ende',
+      startDate: 'Startdatum',
+      endDate: 'Enddatum',
+      location: 'Ort',
+      locationPlaceholder: 'Konferenzraum A',
+      description: 'Beschreibung',
+      descriptionPlaceholder: 'Ereignisdetails...',
+      cancel: 'Abbrechen',
+      createEvent: 'Termin erstellen',
+      creating: 'Wird erstellt...',
+      editEvent: 'Termin bearbeiten',
+      saveChanges: 'Änderungen speichern',
+      saving: 'Wird gespeichert...',
+      delete: 'Löschen',
+      deleting: 'Wird gelöscht...',
+      deleteEventTitle: 'Termin löschen',
+      deleteRecurringEventTitle: 'Wiederkehrenden Termin löschen',
+      deleteEventConfirm: 'Möchten Sie "{title}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.',
+      deleteRecurringPrompt: '"{title}" ist ein wiederkehrender Termin. Wie möchten Sie ihn löschen?',
+      deleteThisEventOnly: 'Nur dieses Ereignis',
+      deleteThisOccurrence: 'Nur dieses Vorkommen löschen',
+      deleteThisAndFutureEvents: 'Dieses und zukünftige Ereignisse',
+      deleteThisOccurrenceAndFuture: 'Dieses Vorkommen und alle zukünftigen Vorkommen löschen',
+      deleteAllEvents: 'Alle Ereignisse',
+      deleteEntireSeries: 'Die gesamte Serie löschen',
+      noEvents: 'Keine Ereignisse',
+      allDay: 'Ganztägig',
+      at: 'um',
+      duration: 'Dauer',
+      attendees: 'Teilnehmende',
+      recurrence: 'Wiederholung',
+      recurringEvent: 'Wiederkehrender Termin',
+      unknownAttendee: 'Unbekannt',
+      googleCalendarLimitationTitle: 'ℹ️ Google-Kalender-Einschränkung:',
+      googleCalendarLimitationBody: 'Das Bearbeiten von Terminen wird für Google Kalender in Home Assistant derzeit nicht unterstützt. Sie können Termine hier löschen, zum Bearbeiten nutzen Sie bitte die Google Kalender App oder Website.',
+      cannotModifyTitle: 'ℹ️ Kann nicht bearbeitet werden:',
+      cannotModifyBody: 'Diesem Ereignis fehlen erforderliche Informationen (UID) zum Bearbeiten oder Löschen. Möglicherweise müssen Sie es neu erstellen.',
+      untitledEvent: 'Unbenannter Termin',
+      noWritableCalendars: 'Keine beschreibbaren Kalender verfügbar',
+      eventTitleRequired: 'Ein Terminname ist erforderlich',
+      startEndDatesRequired: 'Start- und Enddatum sind erforderlich',
+      endDateBeforeStart: 'Das Enddatum darf nicht vor dem Startdatum liegen',
+      startEndTimesRequired: 'Start- und Endzeit sind erforderlich',
+      endTimeBeforeStart: 'Die Endzeit muss nach der Startzeit liegen',
+      failedCreateEvent: 'Termin konnte nicht erstellt werden. Bitte erneut versuchen.',
+      failedUpdateEvent: 'Termin konnte nicht aktualisiert werden. Bitte erneut versuchen.',
+      failedDeleteEvent: 'Termin konnte nicht gelöscht werden. Bitte erneut versuchen.',
+      homeAssistantUnavailable: 'Home Assistant nicht verfügbar',
+      googleCalendarEditError: 'Google Kalender unterstützt das Bearbeiten von Terminen über Home Assistant nicht. Bitte verwenden Sie die Google Kalender App oder Website.',
+      missingUidError: 'Dieses Ereignis enthält keine erforderlichen Informationen (UID) und kann nicht bearbeitet werden.',
+      calendarNoModifyError: 'Dieser Kalender unterstützt keine Terminänderungen. Bitte erstellen Sie stattdessen einen neuen Termin.',
+      createEventServiceError: 'Termin konnte nicht erstellt werden',
+      deleteEventServiceError: 'Termin konnte nicht gelöscht werden',
+      updateEventServiceError: 'Termin konnte nicht aktualisiert werden. Der Kalender unterstützt möglicherweise keine Änderungen.',
+      durationHour: '{count} Stunde',
+      durationHours: '{count} Stunden',
+      durationMinute: '{count} Minute',
+      durationMinutes: '{count} Minuten',
+      moreEvents: '+{count} mehr'
+    }
+  }
+};
+
+// ============================================================================
+// TRANSLATION HELPER FUNCTIONS
+// ============================================================================
 
 const DEFAULT_LANGUAGE = 'en';
-const LANGUAGE_CACHE = {
-  en: enTranslations
-};
-const LANGUAGE_LOADERS = {
-  de: () => import('./de.js'),
-  fr: () => import('./fr.js')
-};
 
 const normalizeLanguage = (language) => {
   if (!language) return DEFAULT_LANGUAGE;
@@ -16,7 +250,7 @@ const normalizeLanguage = (language) => {
 
 const resolveLanguage = (language) => {
   const normalized = normalizeLanguage(language);
-  return LANGUAGE_CACHE[normalized] || LANGUAGE_LOADERS[normalized] ? normalized : DEFAULT_LANGUAGE;
+  return TRANSLATIONS[normalized] ? normalized : DEFAULT_LANGUAGE;
 };
 
 const interpolate = (template, params = {}) =>
@@ -24,11 +258,15 @@ const interpolate = (template, params = {}) =>
 
 const translate = (language, key, params = {}) => {
   const resolved = resolveLanguage(language);
-  const fallbackStrings = LANGUAGE_CACHE[DEFAULT_LANGUAGE]?.strings || {};
-  const strings = LANGUAGE_CACHE[resolved]?.strings || fallbackStrings;
+  const fallbackStrings = TRANSLATIONS[DEFAULT_LANGUAGE]?.strings || {};
+  const strings = TRANSLATIONS[resolved]?.strings || fallbackStrings;
   const fallback = fallbackStrings[key] || key;
   return interpolate(strings[key] || fallback, params);
 };
+
+// ============================================================================
+// MAIN CALENDAR CARD CLASS
+// ============================================================================
 
 class SkylightCalendarCard extends HTMLElement {
   constructor() {
@@ -81,7 +319,7 @@ class SkylightCalendarCard extends HTMLElement {
     this._viewMode = this._config.default_view;
     this.setWeekStart();
     this.render();
-    this.loadLanguage(language);
+    this._activeLanguage = language;
   }
 
   set hass(hass) {
@@ -95,34 +333,17 @@ class SkylightCalendarCard extends HTMLElement {
 
     const resolvedLanguage = this.getLanguage();
     if (resolvedLanguage !== this._activeLanguage) {
-      this.loadLanguage(resolvedLanguage);
+      this._activeLanguage = resolvedLanguage;
+      if (!this._hasCustomTitle) {
+        this._config.title = translate(this._activeLanguage, 'defaultTitle');
+      }
+      this.render();
     }
     
     // Only fetch events if this is the first time or entities changed
     if (!oldHass || !this._lastFetch || Date.now() - this._lastFetch > 60000) {
       this.updateEvents();
     }
-  }
-
-  async loadLanguage(language) {
-    const resolved = resolveLanguage(language);
-    if (!LANGUAGE_CACHE[resolved] && LANGUAGE_LOADERS[resolved]) {
-      try {
-        const module = await LANGUAGE_LOADERS[resolved]();
-        const entry = module?.default || module;
-        if (entry?.strings) {
-          LANGUAGE_CACHE[resolved] = entry;
-        }
-      } catch (error) {
-        console.warn(`Failed to load translations for ${resolved}:`, error);
-      }
-    }
-
-    this._activeLanguage = LANGUAGE_CACHE[resolved] ? resolved : DEFAULT_LANGUAGE;
-    if (!this._hasCustomTitle) {
-      this._config.title = translate(this._activeLanguage, 'defaultTitle');
-    }
-    this.render();
   }
 
   async checkAllCalendarCapabilities() {
@@ -240,7 +461,7 @@ class SkylightCalendarCard extends HTMLElement {
 
   getLocale() {
     const resolved = this._activeLanguage || this.getLanguage();
-    return this._config.locale || LANGUAGE_CACHE[resolved]?.locale || this._hass?.locale?.language || LANGUAGE_CACHE[DEFAULT_LANGUAGE]?.locale || 'en-US';
+    return this._config.locale || TRANSLATIONS[resolved]?.locale || this._hass?.locale?.language || TRANSLATIONS[DEFAULT_LANGUAGE]?.locale || 'en-US';
   }
 
   t(key, params = {}) {
