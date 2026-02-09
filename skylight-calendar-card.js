@@ -1,3 +1,35 @@
+import enTranslations from './translations/en.js';
+
+const DEFAULT_LANGUAGE = 'en';
+const LANGUAGE_CACHE = {
+  en: enTranslations
+};
+const LANGUAGE_LOADERS = {
+  de: () => import('./translations/de.js'),
+  fr: () => import('./translations/fr.js')
+};
+
+const normalizeLanguage = (language) => {
+  if (!language) return DEFAULT_LANGUAGE;
+  return language.toLowerCase().split('-')[0];
+};
+
+const resolveLanguage = (language) => {
+  const normalized = normalizeLanguage(language);
+  return LANGUAGE_CACHE[normalized] || LANGUAGE_LOADERS[normalized] ? normalized : DEFAULT_LANGUAGE;
+};
+
+const interpolate = (template, params = {}) =>
+  template.replace(/\{(\w+)\}/g, (_, key) => (params[key] !== undefined ? params[key] : ''));
+
+const translate = (language, key, params = {}) => {
+  const resolved = resolveLanguage(language);
+  const fallbackStrings = LANGUAGE_CACHE[DEFAULT_LANGUAGE]?.strings || {};
+  const strings = LANGUAGE_CACHE[resolved]?.strings || fallbackStrings;
+  const fallback = fallbackStrings[key] || key;
+  return interpolate(strings[key] || fallback, params);
+};
+
 class SkylightCalendarCard extends HTMLElement {
   constructor() {
     super();
@@ -11,14 +43,18 @@ class SkylightCalendarCard extends HTMLElement {
     this._lastFetch = null;
     this._hiddenCalendars = new Set(); // Track which calendars are hidden
     this._calendarCapabilities = {}; // Track calendar capabilities
+    this._activeLanguage = DEFAULT_LANGUAGE;
+    this._hasCustomTitle = false;
   }
 
   setConfig(config) {
     if (!config.entities || !Array.isArray(config.entities)) {
       throw new Error('You need to define calendar entities');
     }
+    const language = resolveLanguage(config.language || this._hass?.language || this._hass?.locale?.language);
+    this._hasCustomTitle = config.title !== undefined && config.title !== null;
     this._config = {
-      title: config.title || 'Family Calendar',
+      title: this._hasCustomTitle ? config.title : translate(language, 'defaultTitle'),
       entities: config.entities,
       showWeekNumbers: config.show_week_numbers !== false,
       firstDayOfWeek: config.first_day_of_week || 0, // 0 = Sunday
@@ -38,11 +74,14 @@ class SkylightCalendarCard extends HTMLElement {
       header_color: config.header_color !== undefined ? config.header_color : 'var(--primary-color)', // Custom header background color/gradient
       enable_event_management: config.enable_event_management !== false, // Enable create/edit/delete
       readonly_calendars: config.readonly_calendars || [], // Calendars that should not allow modifications
+      language: config.language || null, // Language code for translations (e.g., 'en', 'de', 'fr')
+      locale: config.locale || null, // Locale override for date/time formatting (e.g., 'en-US')
       ...config
     };
     this._viewMode = this._config.default_view;
     this.setWeekStart();
     this.render();
+    this.loadLanguage(language);
   }
 
   set hass(hass) {
@@ -53,11 +92,37 @@ class SkylightCalendarCard extends HTMLElement {
     if (!oldHass || this._hass !== oldHass) {
       this.checkAllCalendarCapabilities();
     }
+
+    const resolvedLanguage = this.getLanguage();
+    if (resolvedLanguage !== this._activeLanguage) {
+      this.loadLanguage(resolvedLanguage);
+    }
     
     // Only fetch events if this is the first time or entities changed
     if (!oldHass || !this._lastFetch || Date.now() - this._lastFetch > 60000) {
       this.updateEvents();
     }
+  }
+
+  async loadLanguage(language) {
+    const resolved = resolveLanguage(language);
+    if (!LANGUAGE_CACHE[resolved] && LANGUAGE_LOADERS[resolved]) {
+      try {
+        const module = await LANGUAGE_LOADERS[resolved]();
+        const entry = module?.default || module;
+        if (entry?.strings) {
+          LANGUAGE_CACHE[resolved] = entry;
+        }
+      } catch (error) {
+        console.warn(`Failed to load translations for ${resolved}:`, error);
+      }
+    }
+
+    this._activeLanguage = LANGUAGE_CACHE[resolved] ? resolved : DEFAULT_LANGUAGE;
+    if (!this._hasCustomTitle) {
+      this._config.title = translate(this._activeLanguage, 'defaultTitle');
+    }
+    this.render();
   }
 
   async checkAllCalendarCapabilities() {
@@ -167,6 +232,31 @@ class SkylightCalendarCard extends HTMLElement {
 
   connectedCallback() {
     this.render();
+  }
+
+  getLanguage() {
+    return resolveLanguage(this._config.language || this._hass?.language || this._hass?.locale?.language);
+  }
+
+  getLocale() {
+    const resolved = this._activeLanguage || this.getLanguage();
+    return this._config.locale || LANGUAGE_CACHE[resolved]?.locale || this._hass?.locale?.language || LANGUAGE_CACHE[DEFAULT_LANGUAGE]?.locale || 'en-US';
+  }
+
+  t(key, params = {}) {
+    return translate(this.getLanguage(), key, params);
+  }
+
+  getWeekdayNames(format = 'short') {
+    const formatter = new Intl.DateTimeFormat(this.getLocale(), { weekday: format });
+    const baseDate = new Date(2021, 5, 6);
+    const names = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(baseDate);
+      date.setDate(baseDate.getDate() + i);
+      names.push(formatter.format(date));
+    }
+    return names;
   }
 
   setWeekStart() {
@@ -1255,14 +1345,14 @@ class SkylightCalendarCard extends HTMLElement {
       <div class="header">
         <div class="header-left">
           <h2 class="header-title">${this._config.title}</h2>
-          ${canAddEvents ? '<button class="add-event-button" id="add-event-btn"><span class="icon">+</span>Add Event</button>' : ''}
+          ${canAddEvents ? `<button class="add-event-button" id="add-event-btn"><span class="icon">+</span>${this.t('addEvent')}</button>` : ''}
         </div>
         <div class="header-controls">
           ${this.renderViewModeButtons()}
           <button class="nav-button" id="prev-period">‹</button>
           <div class="month-year">${this.getPeriodLabel()}</div>
           <button class="nav-button" id="next-period">›</button>
-          <button class="today-button" id="today">Today</button>
+          <button class="today-button" id="today">${this.t('today')}</button>
         </div>
       </div>
     `;
@@ -1277,14 +1367,14 @@ class SkylightCalendarCard extends HTMLElement {
         <div class="compact-header-left">
           <h2 class="header-title">${this._config.title}</h2>
           ${this.renderCalendarBadgesInline()}
-          ${canAddEvents ? '<button class="add-event-button" id="add-event-btn"><span class="icon">+</span>Add Event</button>' : ''}
+          ${canAddEvents ? `<button class="add-event-button" id="add-event-btn"><span class="icon">+</span>${this.t('addEvent')}</button>` : ''}
         </div>
         <div class="header-controls">
           ${this.renderViewModeButtons()}
           <button class="nav-button" id="prev-period">‹</button>
           <div class="month-year">${this.getPeriodLabel()}</div>
           <button class="nav-button" id="next-period">›</button>
-          <button class="today-button" id="today">Today</button>
+          <button class="today-button" id="today">${this.t('today')}</button>
         </div>
       </div>
     `;
@@ -1318,9 +1408,9 @@ class SkylightCalendarCard extends HTMLElement {
   renderViewModeButtons() {
     return `
       <div class="view-mode-buttons">
-        <button class="view-mode-button ${this._viewMode === 'month' ? 'active' : ''}" data-view="month">Month</button>
-        <button class="view-mode-button ${this._viewMode === 'week-compact' ? 'active' : ''}" data-view="week-compact">Week</button>
-        <button class="view-mode-button ${this._viewMode === 'week-standard' ? 'active' : ''}" data-view="week-standard">Schedule</button>
+        <button class="view-mode-button ${this._viewMode === 'month' ? 'active' : ''}" data-view="month">${this.t('month')}</button>
+        <button class="view-mode-button ${this._viewMode === 'week-compact' ? 'active' : ''}" data-view="week-compact">${this.t('week')}</button>
+        <button class="view-mode-button ${this._viewMode === 'week-standard' ? 'active' : ''}" data-view="week-standard">${this.t('schedule')}</button>
       </div>
     `;
   }
@@ -1384,7 +1474,7 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   renderDayHeaders() {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const days = this.getWeekdayNames('short');
     const firstDay = this._config.firstDayOfWeek;
     const orderedDays = [...days.slice(firstDay), ...days.slice(0, firstDay)];
     
@@ -1397,6 +1487,7 @@ class SkylightCalendarCard extends HTMLElement {
     const weekDays = this.getWeekDays();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const dayNames = this.getWeekdayNames('short');
     
     return `
       ${!this._config.compact_header ? this.renderCalendarBadges() : ''}
@@ -1419,8 +1510,6 @@ class SkylightCalendarCard extends HTMLElement {
             const bTime = new Date(b.start.dateTime || b.start.date || b.start);
             return aTime - bTime;
           });
-          
-          const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
           
           return `
             <div class="week-day-column ${isToday ? 'today' : ''}" data-date="${date.toISOString()}" data-click-target="day-header">
@@ -1445,12 +1534,12 @@ class SkylightCalendarCard extends HTMLElement {
                   
                   return `
                     <div class="week-compact-event" style="background: ${event.color}" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
-                      ${!isAllDay ? `<div class="week-compact-event-time">${this.formatTime(startTime)}</div>` : '<div class="week-compact-event-time">All Day</div>'}
-                      <div class="week-compact-event-title">${this.escapeHtml(event.summary || 'Untitled Event')}</div>
+                      ${!isAllDay ? `<div class="week-compact-event-time">${this.formatTime(startTime)}</div>` : `<div class="week-compact-event-time">${this.t('allDay')}</div>`}
+                      <div class="week-compact-event-title">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</div>
                     </div>
                   `;
                 }).join('')}
-                ${events.length === 0 ? '<div style="color: #9ca3af; font-size: 13px; text-align: center; margin-top: 20px;">No events</div>' : ''}
+                ${events.length === 0 ? `<div style="color: #9ca3af; font-size: 13px; text-align: center; margin-top: 20px;">${this.t('noEvents')}</div>` : ''}
               </div>
             </div>
           `;
@@ -1474,7 +1563,7 @@ class SkylightCalendarCard extends HTMLElement {
     const baseHourHeight = 120;
     const hourHeight = baseHourHeight * (this._config.height_scale || 1.0);
     
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayNames = this.getWeekdayNames('short');
     
     const containerStyle = this._config.compact_height 
       ? 'max-height: calc(100vh - 200px); overflow-y: auto;' 
@@ -1591,7 +1680,7 @@ class SkylightCalendarCard extends HTMLElement {
             <div class="all-day-event" 
                  style="background: ${bgColor}; border-left: 4px solid ${event.color}"
                  data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
-              <div class="all-day-event-title">${this.escapeHtml(event.summary || 'Untitled')}</div>
+              <div class="all-day-event-title">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</div>
             </div>
           `;
         }).join('') : ''}
@@ -1700,7 +1789,7 @@ class SkylightCalendarCard extends HTMLElement {
         <div class="week-standard-event" 
              style="top: ${top}px; height: ${height}px; width: ${width}; left: ${left}; background: ${bgColor}; border-left: 4px solid ${event.color}"
              data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
-          <div class="week-standard-event-title">${this.escapeHtml(event.summary || 'Untitled')}</div>
+          <div class="week-standard-event-title">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</div>
           <div class="week-standard-event-time">${this.formatTime(eventStart)} - ${this.formatTime(eventEnd)}</div>
           ${this.renderEventIcon(event)}
         </div>
@@ -1846,7 +1935,7 @@ class SkylightCalendarCard extends HTMLElement {
       <div class="${classes}" data-date="${date.toISOString()}">
         <div class="day-number">${dayNum}</div>
         ${dayEvents.slice(0, maxVisible).map(event => this.renderEvent(event)).join('')}
-        ${dayEvents.length > maxVisible ? `<div class="more-events">+${dayEvents.length - maxVisible} more</div>` : ''}
+        ${dayEvents.length > maxVisible ? `<div class="more-events">${this.t('moreEvents', { count: dayEvents.length - maxVisible })}</div>` : ''}
       </div>
     `;
   }
@@ -1868,7 +1957,7 @@ class SkylightCalendarCard extends HTMLElement {
     return `
       <div class="event" style="background: ${event.color}" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
         ${!isAllDay ? `<span class="event-time">${this.formatTime(startTime)}</span>` : ''}
-        ${this.escapeHtml(event.summary || 'Untitled Event')}
+        ${this.escapeHtml(event.summary || this.t('untitledEvent'))}
       </div>
     `;
   }
@@ -2086,7 +2175,7 @@ class SkylightCalendarCard extends HTMLElement {
     
     const writableCalendars = this.getWritableCalendars();
     if (writableCalendars.length === 0) {
-      this.showError('No writable calendars available');
+      this.showError(this.t('noWritableCalendars'));
       return;
     }
     
@@ -2134,14 +2223,14 @@ class SkylightCalendarCard extends HTMLElement {
     
     content.innerHTML = `
       <div class="modal-header">
-        <h3 class="modal-title">Create Event</h3>
+        <h3 class="modal-title">${this.t('createEvent')}</h3>
         <button class="modal-close" id="close-modal">×</button>
       </div>
       <div class="modal-body">
         <form id="create-event-form">
           <div class="form-group">
             <label class="form-label">
-              Calendar<span class="form-required">*</span>
+              ${this.t('calendar')}<span class="form-required">*</span>
             </label>
             <select class="form-select" id="event-calendar" required>
               ${writableCalendars.map((entityId, index) => `
@@ -2154,28 +2243,28 @@ class SkylightCalendarCard extends HTMLElement {
           
           <div class="form-group">
             <label class="form-label">
-              Event Title<span class="form-required">*</span>
+              ${this.t('eventTitle')}<span class="form-required">*</span>
             </label>
-            <input type="text" class="form-input" id="event-title" placeholder="Team Meeting" required />
+            <input type="text" class="form-input" id="event-title" placeholder="${this.t('eventTitlePlaceholder')}" required />
           </div>
           
           <div class="form-group">
             <div class="form-checkbox-group">
               <input type="checkbox" class="form-checkbox" id="event-all-day" />
-              <label class="form-checkbox-label" for="event-all-day">All-day event</label>
+              <label class="form-checkbox-label" for="event-all-day">${this.t('allDayEvent')}</label>
             </div>
           </div>
           
           <div id="timed-event-fields">
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label">Start</label>
+                <label class="form-label">${this.t('start')}</label>
                 <input type="datetime-local" class="form-input" id="event-start" 
                        value="${formatDateTimeLocal(startTime)}" required />
               </div>
               
               <div class="form-group">
-                <label class="form-label">End</label>
+                <label class="form-label">${this.t('end')}</label>
                 <input type="datetime-local" class="form-input" id="event-end" 
                        value="${formatDateTimeLocal(endTime)}" required />
               </div>
@@ -2185,13 +2274,13 @@ class SkylightCalendarCard extends HTMLElement {
           <div id="all-day-event-fields" style="display: none;">
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label">Start Date</label>
+                <label class="form-label">${this.t('startDate')}</label>
                 <input type="date" class="form-input" id="event-start-date" 
                        value="${formatDate(startDate)}" />
               </div>
               
               <div class="form-group">
-                <label class="form-label">End Date</label>
+                <label class="form-label">${this.t('endDate')}</label>
                 <input type="date" class="form-input" id="event-end-date" 
                        value="${formatDate(endDate)}" />
               </div>
@@ -2199,20 +2288,20 @@ class SkylightCalendarCard extends HTMLElement {
           </div>
           
           <div class="form-group">
-            <label class="form-label">Location</label>
-            <input type="text" class="form-input" id="event-location" placeholder="Conference Room A" />
+            <label class="form-label">${this.t('location')}</label>
+            <input type="text" class="form-input" id="event-location" placeholder="${this.t('locationPlaceholder')}" />
           </div>
           
           <div class="form-group">
-            <label class="form-label">Description</label>
-            <textarea class="form-textarea" id="event-description" placeholder="Event details..."></textarea>
+            <label class="form-label">${this.t('description')}</label>
+            <textarea class="form-textarea" id="event-description" placeholder="${this.t('descriptionPlaceholder')}"></textarea>
           </div>
           
           <div id="form-error" class="error-message" style="display: none;"></div>
           
           <div class="form-actions">
-            <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
-            <button type="submit" class="btn btn-primary" id="submit-btn">Create Event</button>
+            <button type="button" class="btn btn-secondary" id="cancel-btn">${this.t('cancel')}</button>
+            <button type="submit" class="btn btn-primary" id="submit-btn">${this.t('createEvent')}</button>
           </div>
         </form>
       </div>
@@ -2259,7 +2348,7 @@ class SkylightCalendarCard extends HTMLElement {
       const description = this.shadowRoot.getElementById('event-description').value.trim();
       
       if (!title) {
-        this.showFormError(errorDiv, 'Event title is required');
+        this.showFormError(errorDiv, this.t('eventTitleRequired'));
         return;
       }
       
@@ -2274,7 +2363,7 @@ class SkylightCalendarCard extends HTMLElement {
         const endDate = this.shadowRoot.getElementById('event-end-date').value;
         
         if (!startDate || !endDate) {
-          this.showFormError(errorDiv, 'Start and end dates are required');
+          this.showFormError(errorDiv, this.t('startEndDatesRequired'));
           return;
         }
         
@@ -2283,7 +2372,7 @@ class SkylightCalendarCard extends HTMLElement {
         const end = new Date(endDate);
         
         if (end < start) {
-          this.showFormError(errorDiv, 'End date cannot be before start date');
+          this.showFormError(errorDiv, this.t('endDateBeforeStart'));
           return;
         }
         
@@ -2299,7 +2388,7 @@ class SkylightCalendarCard extends HTMLElement {
         const endDateTime = this.shadowRoot.getElementById('event-end').value;
         
         if (!startDateTime || !endDateTime) {
-          this.showFormError(errorDiv, 'Start and end times are required');
+          this.showFormError(errorDiv, this.t('startEndTimesRequired'));
           return;
         }
         
@@ -2308,7 +2397,7 @@ class SkylightCalendarCard extends HTMLElement {
         const end = new Date(endDateTime);
         
         if (end <= start) {
-          this.showFormError(errorDiv, 'End time must be after start time');
+          this.showFormError(errorDiv, this.t('endTimeBeforeStart'));
           return;
         }
         
@@ -2319,7 +2408,7 @@ class SkylightCalendarCard extends HTMLElement {
       // Disable submit button
       const submitBtn = this.shadowRoot.getElementById('submit-btn');
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Creating...';
+      submitBtn.textContent = this.t('creating');
       
       try {
         await this.createEvent(calendarId, eventData);
@@ -2330,9 +2419,9 @@ class SkylightCalendarCard extends HTMLElement {
         await this.updateEvents();
       } catch (error) {
         console.error('Failed to create event:', error);
-        this.showFormError(errorDiv, error.message || 'Failed to create event. Please try again.');
+        this.showFormError(errorDiv, error.message || this.t('failedCreateEvent'));
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Create Event';
+        submitBtn.textContent = this.t('createEvent');
       }
     });
     
@@ -2348,7 +2437,7 @@ class SkylightCalendarCard extends HTMLElement {
     
     const writableCalendars = this.getWritableCalendars();
     if (writableCalendars.length === 0) {
-      this.showError('No writable calendars available');
+      this.showError(this.t('noWritableCalendars'));
       return;
     }
     
@@ -2371,14 +2460,14 @@ class SkylightCalendarCard extends HTMLElement {
     
     content.innerHTML = `
       <div class="modal-header">
-        <h3 class="modal-title">Edit Event</h3>
+        <h3 class="modal-title">${this.t('editEvent')}</h3>
         <button class="modal-close" id="close-modal">×</button>
       </div>
       <div class="modal-body">
         <form id="edit-event-form">
           <div class="form-group">
             <label class="form-label">
-              Calendar<span class="form-required">*</span>
+              ${this.t('calendar')}<span class="form-required">*</span>
             </label>
             <select class="form-select" id="event-calendar" required>
               ${writableCalendars.map((entityId) => `
@@ -2391,30 +2480,30 @@ class SkylightCalendarCard extends HTMLElement {
           
           <div class="form-group">
             <label class="form-label">
-              Event Title<span class="form-required">*</span>
+              ${this.t('eventTitle')}<span class="form-required">*</span>
             </label>
             <input type="text" class="form-input" id="event-title" 
-                   placeholder="Team Meeting" 
+                   placeholder="${this.t('eventTitlePlaceholder')}" 
                    value="${this.escapeHtml(event.summary || '')}" required />
           </div>
           
           <div class="form-group">
             <div class="form-checkbox-group">
               <input type="checkbox" class="form-checkbox" id="event-all-day" ${isAllDay ? 'checked' : ''} />
-              <label class="form-checkbox-label" for="event-all-day">All-day event</label>
+              <label class="form-checkbox-label" for="event-all-day">${this.t('allDayEvent')}</label>
             </div>
           </div>
           
           <div id="timed-event-fields" style="display: ${isAllDay ? 'none' : 'block'};">
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label">Start</label>
+                <label class="form-label">${this.t('start')}</label>
                 <input type="datetime-local" class="form-input" id="event-start" 
                        value="${formatDateTimeLocal(startDate)}" required />
               </div>
               
               <div class="form-group">
-                <label class="form-label">End</label>
+                <label class="form-label">${this.t('end')}</label>
                 <input type="datetime-local" class="form-input" id="event-end" 
                        value="${formatDateTimeLocal(endDate)}" required />
               </div>
@@ -2424,13 +2513,13 @@ class SkylightCalendarCard extends HTMLElement {
           <div id="all-day-event-fields" style="display: ${isAllDay ? 'block' : 'none'};">
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label">Start Date</label>
+                <label class="form-label">${this.t('startDate')}</label>
                 <input type="date" class="form-input" id="event-start-date" 
                        value="${formatDate(startDate)}" />
               </div>
               
               <div class="form-group">
-                <label class="form-label">End Date</label>
+                <label class="form-label">${this.t('endDate')}</label>
                 <input type="date" class="form-input" id="event-end-date" 
                        value="${formatDate(endDate)}" />
               </div>
@@ -2438,22 +2527,22 @@ class SkylightCalendarCard extends HTMLElement {
           </div>
           
           <div class="form-group">
-            <label class="form-label">Location</label>
+            <label class="form-label">${this.t('location')}</label>
             <input type="text" class="form-input" id="event-location" 
-                   placeholder="Conference Room A" 
+                   placeholder="${this.t('locationPlaceholder')}" 
                    value="${this.escapeHtml(event.location || '')}" />
           </div>
           
           <div class="form-group">
-            <label class="form-label">Description</label>
-            <textarea class="form-textarea" id="event-description" placeholder="Event details...">${this.escapeHtml(event.description || '')}</textarea>
+            <label class="form-label">${this.t('description')}</label>
+            <textarea class="form-textarea" id="event-description" placeholder="${this.t('descriptionPlaceholder')}">${this.escapeHtml(event.description || '')}</textarea>
           </div>
           
           <div id="form-error" class="error-message" style="display: none;"></div>
           
           <div class="form-actions">
-            <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
-            <button type="submit" class="btn btn-primary" id="submit-btn">Save Changes</button>
+            <button type="button" class="btn btn-secondary" id="cancel-btn">${this.t('cancel')}</button>
+            <button type="submit" class="btn btn-primary" id="submit-btn">${this.t('saveChanges')}</button>
           </div>
         </form>
       </div>
@@ -2500,7 +2589,7 @@ class SkylightCalendarCard extends HTMLElement {
       const description = this.shadowRoot.getElementById('event-description').value.trim();
       
       if (!title) {
-        this.showFormError(errorDiv, 'Event title is required');
+        this.showFormError(errorDiv, this.t('eventTitleRequired'));
         return;
       }
       
@@ -2515,7 +2604,7 @@ class SkylightCalendarCard extends HTMLElement {
         const endDateStr = this.shadowRoot.getElementById('event-end-date').value;
         
         if (!startDateStr || !endDateStr) {
-          this.showFormError(errorDiv, 'Start and end dates are required');
+          this.showFormError(errorDiv, this.t('startEndDatesRequired'));
           return;
         }
         
@@ -2524,7 +2613,7 @@ class SkylightCalendarCard extends HTMLElement {
         const end = new Date(endDateStr);
         
         if (end < start) {
-          this.showFormError(errorDiv, 'End date cannot be before start date');
+          this.showFormError(errorDiv, this.t('endDateBeforeStart'));
           return;
         }
         
@@ -2540,7 +2629,7 @@ class SkylightCalendarCard extends HTMLElement {
         const endDateTime = this.shadowRoot.getElementById('event-end').value;
         
         if (!startDateTime || !endDateTime) {
-          this.showFormError(errorDiv, 'Start and end times are required');
+          this.showFormError(errorDiv, this.t('startEndTimesRequired'));
           return;
         }
         
@@ -2549,7 +2638,7 @@ class SkylightCalendarCard extends HTMLElement {
         const end = new Date(endDateTime);
         
         if (end <= start) {
-          this.showFormError(errorDiv, 'End time must be after start time');
+          this.showFormError(errorDiv, this.t('endTimeBeforeStart'));
           return;
         }
         
@@ -2560,7 +2649,7 @@ class SkylightCalendarCard extends HTMLElement {
       // Disable submit button
       const submitBtn = this.shadowRoot.getElementById('submit-btn');
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Saving...';
+      submitBtn.textContent = this.t('saving');
       
       try {
         await this.updateEvent(event, calendarId, eventData);
@@ -2571,9 +2660,9 @@ class SkylightCalendarCard extends HTMLElement {
         await this.updateEvents();
       } catch (error) {
         console.error('Failed to update event:', error);
-        this.showFormError(errorDiv, error.message || 'Failed to update event. Please try again.');
+        this.showFormError(errorDiv, error.message || this.t('failedUpdateEvent'));
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Save Changes';
+        submitBtn.textContent = this.t('saveChanges');
       }
     });
     
@@ -2585,7 +2674,7 @@ class SkylightCalendarCard extends HTMLElement {
 
   async updateEvent(originalEvent, newCalendarId, eventData) {
     if (!this._hass) {
-      throw new Error('Home Assistant not available');
+      throw new Error(this.t('homeAssistantUnavailable'));
     }
     
     const capabilities = this._calendarCapabilities[originalEvent.entityId] || {};
@@ -2595,11 +2684,11 @@ class SkylightCalendarCard extends HTMLElement {
     
     // Google Calendar and other calendars without UID support can't be edited
     if (capabilities.isGoogleCalendar) {
-      throw new Error('Google Calendar does not support editing events through Home Assistant. Please use the Google Calendar app or website.');
+      throw new Error(this.t('googleCalendarEditError'));
     }
     
     if (!originalEvent.uid) {
-      throw new Error('This event is missing required information (UID) and cannot be edited.');
+      throw new Error(this.t('missingUidError'));
     }
     
     // If calendar supports UPDATE and we're not moving calendars, use update service
@@ -2646,7 +2735,7 @@ class SkylightCalendarCard extends HTMLElement {
     // Fallback: Delete old event and create new one
     // This works even when moving between calendars or when UPDATE is not supported
     if (!capabilities.canDelete) {
-      throw new Error('This calendar does not support event modifications. Try creating a new event instead.');
+      throw new Error(this.t('calendarNoModifyError'));
     }
     
     try {
@@ -2657,13 +2746,13 @@ class SkylightCalendarCard extends HTMLElement {
       await this.createEvent(newCalendarId, eventData);
     } catch (error) {
       console.error('Delete+Create fallback failed:', error);
-      throw new Error(error.message || 'Failed to update event. The calendar may not support modifications.');
+      throw new Error(error.message || this.t('updateEventServiceError'));
     }
   }
 
   async deleteEvent(calendarId, uid, recurrenceId = null, recurrenceRange = null) {
     if (!this._hass) {
-      throw new Error('Home Assistant not available');
+      throw new Error(this.t('homeAssistantUnavailable'));
     }
     
     // Try WebSocket API first (works for Google Calendar and others)
@@ -2714,13 +2803,13 @@ class SkylightCalendarCard extends HTMLElement {
       await this._hass.callService('calendar', 'delete_event', serviceData);
     } catch (error) {
       console.error('Service call delete also failed:', error);
-      throw new Error(error.message || 'Failed to delete event');
+      throw new Error(error.message || this.t('deleteEventServiceError'));
     }
   }
 
   async createEvent(calendarId, eventData) {
     if (!this._hass) {
-      throw new Error('Home Assistant not available');
+      throw new Error(this.t('homeAssistantUnavailable'));
     }
     
     // Build service data based on event type
@@ -2754,7 +2843,7 @@ class SkylightCalendarCard extends HTMLElement {
       await this._hass.callService('calendar', 'create_event', serviceData);
     } catch (error) {
       console.error('Service call failed:', error);
-      throw new Error(error.message || 'Failed to create event');
+      throw new Error(error.message || this.t('createEventServiceError'));
     }
   }
 
@@ -2777,17 +2866,17 @@ class SkylightCalendarCard extends HTMLElement {
       // Show recurring event deletion options
       content.innerHTML = `
         <div class="confirm-dialog">
-          <h3 class="confirm-title">Delete Recurring Event</h3>
+          <h3 class="confirm-title">${this.t('deleteRecurringEventTitle')}</h3>
           <p class="confirm-message">
-            "${this.escapeHtml(event.summary || 'Untitled Event')}" is a recurring event. How would you like to delete it?
+            ${this.t('deleteRecurringPrompt', { title: this.escapeHtml(event.summary || this.t('untitledEvent')) })}
           </p>
           
           <div class="recurring-options">
             <label class="recurring-option">
               <input type="radio" name="delete-option" value="this" checked />
               <div class="recurring-option-label">
-                <div class="recurring-option-title">This event only</div>
-                <div class="recurring-option-description">Delete just this occurrence</div>
+                <div class="recurring-option-title">${this.t('deleteThisEventOnly')}</div>
+                <div class="recurring-option-description">${this.t('deleteThisOccurrence')}</div>
               </div>
             </label>
             
@@ -2795,8 +2884,8 @@ class SkylightCalendarCard extends HTMLElement {
               <label class="recurring-option">
                 <input type="radio" name="delete-option" value="future" />
                 <div class="recurring-option-label">
-                  <div class="recurring-option-title">This and future events</div>
-                  <div class="recurring-option-description">Delete this occurrence and all future occurrences</div>
+                  <div class="recurring-option-title">${this.t('deleteThisAndFutureEvents')}</div>
+                  <div class="recurring-option-description">${this.t('deleteThisOccurrenceAndFuture')}</div>
                 </div>
               </label>
             ` : ''}
@@ -2804,15 +2893,15 @@ class SkylightCalendarCard extends HTMLElement {
             <label class="recurring-option">
               <input type="radio" name="delete-option" value="all" />
               <div class="recurring-option-label">
-                <div class="recurring-option-title">All events</div>
-                <div class="recurring-option-description">Delete the entire recurring series</div>
+              <div class="recurring-option-title">${this.t('deleteAllEvents')}</div>
+              <div class="recurring-option-description">${this.t('deleteEntireSeries')}</div>
               </div>
             </label>
           </div>
           
           <div class="confirm-actions">
-            <button class="btn btn-secondary" id="cancel-delete-btn">Cancel</button>
-            <button class="btn btn-danger" id="confirm-delete-btn">Delete</button>
+            <button class="btn btn-secondary" id="cancel-delete-btn">${this.t('cancel')}</button>
+            <button class="btn btn-danger" id="confirm-delete-btn">${this.t('delete')}</button>
           </div>
         </div>
       `;
@@ -2820,13 +2909,13 @@ class SkylightCalendarCard extends HTMLElement {
       // Show simple confirmation for non-recurring events
       content.innerHTML = `
         <div class="confirm-dialog">
-          <h3 class="confirm-title">Delete Event</h3>
+          <h3 class="confirm-title">${this.t('deleteEventTitle')}</h3>
           <p class="confirm-message">
-            Are you sure you want to delete "${this.escapeHtml(event.summary || 'Untitled Event')}"? This action cannot be undone.
+            ${this.t('deleteEventConfirm', { title: this.escapeHtml(event.summary || this.t('untitledEvent')) })}
           </p>
           <div class="confirm-actions">
-            <button class="btn btn-secondary" id="cancel-delete-btn">Cancel</button>
-            <button class="btn btn-danger" id="confirm-delete-btn">Delete</button>
+            <button class="btn btn-secondary" id="cancel-delete-btn">${this.t('cancel')}</button>
+            <button class="btn btn-danger" id="confirm-delete-btn">${this.t('delete')}</button>
           </div>
         </div>
       `;
@@ -2843,7 +2932,7 @@ class SkylightCalendarCard extends HTMLElement {
     this.shadowRoot.getElementById('confirm-delete-btn').addEventListener('click', async () => {
       const deleteBtn = this.shadowRoot.getElementById('confirm-delete-btn');
       deleteBtn.disabled = true;
-      deleteBtn.textContent = 'Deleting...';
+      deleteBtn.textContent = this.t('deleting');
       
       try {
         if (isRecurring) {
@@ -2872,9 +2961,9 @@ class SkylightCalendarCard extends HTMLElement {
         await this.updateEvents();
       } catch (error) {
         console.error('Failed to delete event:', error);
-        alert(error.message || 'Failed to delete event. Please try again.');
+        alert(error.message || this.t('failedDeleteEvent'));
         deleteBtn.disabled = false;
-        deleteBtn.textContent = 'Delete';
+        deleteBtn.textContent = this.t('delete');
       }
     });
   }
@@ -2941,7 +3030,7 @@ class SkylightCalendarCard extends HTMLElement {
     content.innerHTML = `
       <div class="modal-header">
         <div>
-          <h3 class="modal-title">${this.escapeHtml(event.summary || 'Untitled Event')}</h3>
+          <h3 class="modal-title">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</h3>
           <div class="modal-calendar-badge" style="background: ${event.color}; color: white; display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; margin-top: 8px;">
             ${this.escapeHtml(calendarName)}
           </div>
@@ -2950,69 +3039,69 @@ class SkylightCalendarCard extends HTMLElement {
       </div>
       <div class="modal-body">
         <div class="modal-row">
-          <div class="modal-label">📅 Start</div>
+          <div class="modal-label">📅 ${this.t('start')}</div>
           <div class="modal-value">
-            ${this.formatDate(startDate)}${!isAllDay ? ` at ${this.formatTime(startDate)}` : ' (All Day)'}
+            ${this.formatDate(startDate)}${!isAllDay ? ` ${this.t('at')} ${this.formatTime(startDate)}` : ` (${this.t('allDay')})`}
           </div>
         </div>
         <div class="modal-row">
-          <div class="modal-label">🏁 End</div>
+          <div class="modal-label">🏁 ${this.t('end')}</div>
           <div class="modal-value">
-            ${this.formatDate(endDate)}${!isAllDay ? ` at ${this.formatTime(endDate)}` : ' (All Day)'}
+            ${this.formatDate(endDate)}${!isAllDay ? ` ${this.t('at')} ${this.formatTime(endDate)}` : ` (${this.t('allDay')})`}
           </div>
         </div>
         ${!isAllDay ? `
           <div class="modal-row">
-            <div class="modal-label">⏱️ Duration</div>
+            <div class="modal-label">⏱️ ${this.t('duration')}</div>
             <div class="modal-value">${this.formatDuration(startDate, endDate)}</div>
           </div>
         ` : ''}
         ${event.location ? `
           <div class="modal-row">
-            <div class="modal-label">📍 Location</div>
+            <div class="modal-label">📍 ${this.t('location')}</div>
             <div class="modal-value">${this.escapeHtml(event.location)}</div>
           </div>
         ` : ''}
         ${event.description ? `
           <div class="modal-row">
-            <div class="modal-label">📝 Description</div>
+            <div class="modal-label">📝 ${this.t('description')}</div>
             <div class="modal-value" style="white-space: pre-wrap;">${this.escapeHtml(event.description)}</div>
           </div>
         ` : ''}
         ${event.attendees && event.attendees.length > 0 ? `
           <div class="modal-row">
-            <div class="modal-label">👥 Attendees</div>
+            <div class="modal-label">👥 ${this.t('attendees')}</div>
             <div class="modal-value">
-              ${event.attendees.map(a => this.escapeHtml(a.email || a.displayName || 'Unknown')).join(', ')}
+              ${event.attendees.map(a => this.escapeHtml(a.email || a.displayName || this.t('unknownAttendee'))).join(', ')}
             </div>
           </div>
         ` : ''}
         ${event.rrule ? `
           <div class="modal-row">
-            <div class="modal-label">🔁 Recurrence</div>
-            <div class="modal-value">Recurring Event</div>
+            <div class="modal-label">🔁 ${this.t('recurrence')}</div>
+            <div class="modal-value">${this.t('recurringEvent')}</div>
           </div>
         ` : ''}
         
         ${!canModify && !capabilities.isReadonly && capabilities.isGoogleCalendar ? `
           <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 12px; margin-top: 16px; font-size: 13px; color: #92400e;">
-            <strong>ℹ️ Google Calendar Limitation:</strong> Editing events is not currently supported for Google Calendar through Home Assistant. You can delete events from here, but to edit please use the Google Calendar app or website.
+            <strong>${this.t('googleCalendarLimitationTitle')}</strong> ${this.t('googleCalendarLimitationBody')}
           </div>
         ` : ''}
         
         ${!canModify && !hasUID && !capabilities.isGoogleCalendar ? `
           <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 12px; margin-top: 16px; font-size: 13px; color: #92400e;">
-            <strong>ℹ️ Cannot Modify:</strong> This event is missing required information (UID) for editing or deletion. You may need to recreate it.
+            <strong>${this.t('cannotModifyTitle')}</strong> ${this.t('cannotModifyBody')}
           </div>
         ` : ''}
         
         ${(canEdit || canDelete) ? `
           <div class="modal-actions">
             <div class="modal-actions-left">
-              ${canDelete ? `<button class="btn btn-danger" id="delete-event-btn">Delete</button>` : ''}
+              ${canDelete ? `<button class="btn btn-danger" id="delete-event-btn">${this.t('delete')}</button>` : ''}
             </div>
             <div class="modal-actions-right">
-              ${canEdit ? `<button class="btn btn-primary" id="edit-event-btn">Edit</button>` : ''}
+              ${canEdit ? `<button class="btn btn-primary" id="edit-event-btn">${this.t('editEvent')}</button>` : ''}
             </div>
           </div>
         ` : ''}
@@ -3084,9 +3173,9 @@ class SkylightCalendarCard extends HTMLElement {
           
           return `
             <div style="margin-bottom: 16px; padding: 12px; background: ${event.color}15; border-left: 4px solid ${event.color}; border-radius: 4px; cursor: pointer;" class="day-event" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
-              <div style="font-weight: 600; margin-bottom: 4px;">${this.escapeHtml(event.summary || 'Untitled Event')}</div>
+              <div style="font-weight: 600; margin-bottom: 4px;">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</div>
               <div style="font-size: 13px; color: #6b7280;">
-                ${isAllDay ? 'All Day' : `${this.formatTime(startTime)} - ${this.formatTime(endTime)}`}
+                ${isAllDay ? this.t('allDay') : `${this.formatTime(startTime)} - ${this.formatTime(endTime)}`}
               </div>
               ${event.location ? `<div style="font-size: 13px; color: #6b7280; margin-top: 4px;">📍 ${this.escapeHtml(event.location)}</div>` : ''}
             </div>
@@ -3110,17 +3199,16 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   getMonthName(month) {
-    const names = ['January', 'February', 'March', 'April', 'May', 'June',
-                   'July', 'August', 'September', 'October', 'November', 'December'];
-    return names[month];
+    const formatter = new Intl.DateTimeFormat(this.getLocale(), { month: 'long' });
+    return formatter.format(new Date(2020, month, 1));
   }
 
   formatTime(date) {
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    return new Intl.DateTimeFormat(this.getLocale(), { hour: 'numeric', minute: '2-digit' }).format(date);
   }
 
   formatDate(date) {
-    return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    return new Intl.DateTimeFormat(this.getLocale(), { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(date);
   }
 
   formatDuration(startDate, endDate) {
@@ -3129,13 +3217,17 @@ class SkylightCalendarCard extends HTMLElement {
     const hours = Math.floor(diffMins / 60);
     const minutes = diffMins % 60;
     
-    if (hours === 0) {
-      return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
-    } else if (minutes === 0) {
-      return `${hours} hour${hours !== 1 ? 's' : ''}`;
-    } else {
-      return `${hours} hour${hours !== 1 ? 's' : ''} ${minutes} minute${minutes !== 1 ? 's' : ''}`;
+    const parts = [];
+    if (hours > 0) {
+      parts.push(this.t(hours === 1 ? 'durationHour' : 'durationHours', { count: hours }));
     }
+    if (minutes > 0) {
+      parts.push(this.t(minutes === 1 ? 'durationMinute' : 'durationMinutes', { count: minutes }));
+    }
+    if (parts.length === 0) {
+      return this.t('durationMinutes', { count: 0 });
+    }
+    return parts.join(' ');
   }
 
   getCalendarName(entityId) {
