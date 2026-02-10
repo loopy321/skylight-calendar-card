@@ -213,8 +213,9 @@ Click on any event to view its details, then click the **"Edit"** button to modi
 - Move event to a different calendar
 
 **How It Works:**
-- If the calendar supports the UPDATE service, changes are applied directly
-- Otherwise, the event is automatically deleted and recreated with new details
+- If `calendar.update_event` is available, changes are applied directly
+- If update is unavailable or fails, the card automatically falls back to **create first, then delete**
+- The fallback is automatic and avoids noisy "update service not found" pop-ups when edit succeeds via create+delete
 - All editing is seamless - you don't need to know which method is used!
 
 **Moving Events Between Calendars:**
@@ -256,20 +257,19 @@ readonly_calendars:
 ### Calendar Integration Compatibility
 
 **Full Support (Create, Edit, Delete):**
-- ✅ **Local Calendar** - Full support with delete+create fallback for edits
+- ✅ **Local Calendar** - Full support with create+delete fallback for edits when direct update is unavailable
 - ⚠️ **CalDAV** - Support varies by server (Nextcloud, iCloud, etc.)
 - ⚠️ **Office 365** - Create works; edit/delete support varies
 
-**Partial Support (Create, Delete only):**
-- ⚠️ **Google Calendar** - **Create and Delete work!** (Delete uses WebSocket API)
-  - **Why no edit?** Home Assistant doesn't expose a WebSocket update API for Google Calendar
-  - **Workaround for editing:** Use the Google Calendar app or website
-  - Events created through this card can be deleted from Home Assistant
-  - This is a limitation of Home Assistant's Google Calendar integration, not this card
+**Fallback-Based Edit Support (No direct update API):**
+- ⚠️ **Google Calendar** - Edit works through create+delete fallback when UID/delete operations are available
+  - Direct `calendar.update_event` may not exist for this integration
+  - The card handles this by creating the replacement event first, then deleting the original
+  - Delete uses Home Assistant's calendar delete capabilities (WebSocket first, service fallback)
 
-**How Editing Works (Non-Google Calendars):**
-1. **UPDATE Service Available** - Event is modified directly (fastest, preserves UID)
-2. **Fallback Method** - Event is deleted and recreated (works on calendars with delete+create)
+**How Editing Works (All Calendars):**
+1. **Direct Update Path** - If `calendar.update_event` exists, event is modified directly (fastest, preserves UID)
+2. **Fallback Path** - Create the new event first, then delete the old event (prevents data loss if create fails)
 
 **How Deletion Works:**
 1. **WebSocket API** (Primary) - Works for Google Calendar and most modern integrations

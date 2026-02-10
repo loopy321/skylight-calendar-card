@@ -2910,6 +2910,22 @@ class SkylightCalendarCard extends HTMLElement {
         await this.updateEvents();
       } catch (error) {
         console.error('Failed to update event:', error);
+
+        // Safety net: if edit was blocked by capability detection, still try create+delete.
+        // Some integrations misreport update/delete support even though create+delete works.
+        if (error.message === this.t('calendarNoModifyError')) {
+          try {
+            await this.createEvent(calendarId, eventData);
+            await this.deleteEvent(event.entityId, event.uid, event.recurrence_id);
+            modal.classList.remove('show');
+            this._lastFetch = null;
+            await this.updateEvents();
+            return;
+          } catch (fallbackError) {
+            console.error('Safety-net create+delete fallback failed:', fallbackError);
+          }
+        }
+
         this.showFormError(errorDiv, error.message || this.t('failedUpdateEvent'));
         submitBtn.disabled = false;
         submitBtn.textContent = this.t('saveChanges');
@@ -2932,17 +2948,13 @@ class SkylightCalendarCard extends HTMLElement {
     // Check if we're moving to a different calendar
     const movingCalendar = newCalendarId !== originalEvent.entityId;
     
-    // Google Calendar and other calendars without UID support can't be edited
-    if (capabilities.isGoogleCalendar) {
-      throw new Error(this.t('googleCalendarEditError'));
-    }
-    
     if (!originalEvent.uid) {
       throw new Error(this.t('missingUidError'));
     }
     
-    // If calendar supports UPDATE and we're not moving calendars, use update service
-    if (capabilities.canUpdate && !movingCalendar) {
+    // If calendar supports UPDATE, we're not moving calendars, and service exists, use update service
+    const hasUpdateService = !!this._hass.services?.calendar?.update_event;
+    if (capabilities.canUpdate && !movingCalendar && hasUpdateService) {
       try {
         const serviceData = {
           entity_id: originalEvent.entityId,
@@ -2977,25 +2989,26 @@ class SkylightCalendarCard extends HTMLElement {
         await this._hass.callService('calendar', 'update_event', serviceData);
         return;
       } catch (error) {
-        console.error('Update service failed, trying delete+create fallback:', error.message);
-        // Fall through to delete+create pattern
+        console.error('Update service failed, trying create+delete fallback:', error.message);
+        // Fall through to create+delete pattern
       }
+    } else if (capabilities.canUpdate && !movingCalendar && !hasUpdateService) {
+      // Some integrations advertise update support but the service is not registered.
+      // Skip update call to avoid misleading "Action calendar.update_event not found" pop-ups.
+      console.debug('calendar.update_event service unavailable, using create+delete fallback');
     }
     
-    // Fallback: Delete old event and create new one
-    // This works even when moving between calendars or when UPDATE is not supported
-    if (!capabilities.canDelete) {
-      throw new Error(this.t('calendarNoModifyError'));
-    }
-    
+    // Fallback: Create new event and then delete old one
+    // This prevents data loss when create fails on calendars without UPDATE support
+
     try {
-      // Delete from original calendar
-      await this.deleteEvent(originalEvent.entityId, originalEvent.uid, originalEvent.recurrence_id);
-      
-      // Create in new calendar (might be same or different)
+      // Create in destination calendar first (might be same or different)
       await this.createEvent(newCalendarId, eventData);
+
+      // Delete from original calendar only after successful create
+      await this.deleteEvent(originalEvent.entityId, originalEvent.uid, originalEvent.recurrence_id);
     } catch (error) {
-      console.error('Delete+Create fallback failed:', error);
+      console.error('Create+Delete fallback failed:', error);
       throw new Error(error.message || this.t('updateEventServiceError'));
     }
   }
@@ -3272,9 +3285,8 @@ class SkylightCalendarCard extends HTMLElement {
                      !capabilities.isReadonly && 
                      hasUID;
     
-    // WebSocket delete works for Google Calendar!
-    // Only editing doesn't work (no WebSocket update API)
-    const canEdit = canModify && !capabilities.isGoogleCalendar;
+    // WebSocket delete works for Google Calendar and other integrations
+    const canEdit = canModify;
     const canDelete = canModify; // WebSocket delete works for all calendars including Google
     
     content.innerHTML = `
