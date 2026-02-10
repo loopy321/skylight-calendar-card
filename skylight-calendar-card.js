@@ -1640,13 +1640,13 @@ class SkylightCalendarCard extends HTMLElement {
     if (this._viewMode === 'month') {
       // If rolling_weeks mode is active, show date range
       if (this._config.rolling_weeks !== null) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const anchorDate = new Date(this._currentDate);
+        anchorDate.setHours(0, 0, 0, 0);
         
-        const currentDay = today.getDay();
+        const currentDay = anchorDate.getDay();
         const diff = (currentDay - this._config.firstDayOfWeek + 7) % 7;
-        const weekStart = new Date(today);
-        weekStart.setDate(today.getDate() - diff);
+        const weekStart = new Date(anchorDate);
+        weekStart.setDate(anchorDate.getDate() - diff);
         
         const totalWeeks = this._config.rolling_weeks + 1;
         const weekEnd = new Date(weekStart);
@@ -2126,14 +2126,14 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   renderRollingWeeks() {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const anchorDate = new Date(this._currentDate);
+    anchorDate.setHours(0, 0, 0, 0);
     
     // Find the start of the current week based on firstDayOfWeek
-    const currentDay = today.getDay();
+    const currentDay = anchorDate.getDay();
     const diff = (currentDay - this._config.firstDayOfWeek + 7) % 7;
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - diff);
+    const weekStart = new Date(anchorDate);
+    weekStart.setDate(anchorDate.getDate() - diff);
     
     // Calculate total days to show: (rolling_weeks + 1) * 7 days
     const totalWeeks = this._config.rolling_weeks + 1;
