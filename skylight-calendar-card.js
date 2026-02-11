@@ -279,6 +279,7 @@ class SkylightCalendarCard extends HTMLElement {
     this._weekStart = new Date();
     this._fetching = false;
     this._lastFetch = null;
+    this._loadedEventRange = null;
     this._hiddenCalendars = new Set(); // Track which calendars are hidden
     this._calendarCapabilities = {}; // Track calendar capabilities
     this._activeLanguage = DEFAULT_LANGUAGE;
@@ -317,6 +318,7 @@ class SkylightCalendarCard extends HTMLElement {
       ...config
     };
     this._viewMode = this._config.default_view;
+    this._loadedEventRange = null;
     this.setWeekStart();
     this.render();
     this._activeLanguage = language;
@@ -340,9 +342,11 @@ class SkylightCalendarCard extends HTMLElement {
       this.render();
     }
     
-    // Only fetch events if this is the first time or entities changed
-    if (!oldHass || !this._lastFetch || Date.now() - this._lastFetch > 60000) {
-      this.updateEvents();
+    // Refresh only when stale or when current view needs dates outside loaded range.
+    if (!oldHass) {
+      this.ensureEventsForCurrentRange({ force: true });
+    } else {
+      this.ensureEventsForCurrentRange();
     }
   }
 
@@ -376,16 +380,12 @@ class SkylightCalendarCard extends HTMLElement {
     });
   }
 
-  async updateEvents() {
-    if (!this._hass || this._fetching) return;
+  getEventIdentityKey(entityId, event) {
+    return `${entityId}|${event.uid || ''}|${event.recurring_event_id || ''}|${event.start?.dateTime || event.start?.date || event.start || ''}|${event.end?.dateTime || event.end?.date || event.end || ''}|${event.summary || ''}`;
+  }
 
-    this._fetching = true;
-    this._lastFetch = Date.now();
-    const newEvents = [];
-
-    // Fetch around the currently visible period and split requests into smaller
-    // windows to avoid backend/integration range limits.
-    const { startDate, endDate } = this.getEventFetchRange();
+  async fetchEventsInRange(startDate, endDate) {
+    const fetchedEvents = [];
     const chunks = this.getDateRangeChunks(startDate, endDate, 30);
 
     // Fetch events for each calendar
@@ -408,11 +408,11 @@ class SkylightCalendarCard extends HTMLElement {
 
           if (events && Array.isArray(events)) {
             events.forEach(event => {
-              const key = `${entityId}|${event.uid || ''}|${event.recurring_event_id || ''}|${event.start?.dateTime || event.start?.date || event.start || ''}|${event.end?.dateTime || event.end?.date || event.end || ''}|${event.summary || ''}`;
+              const key = this.getEventIdentityKey(entityId, event);
               if (seen.has(key)) return;
               seen.add(key);
 
-              newEvents.push({
+              fetchedEvents.push({
                 ...event,
                 entityId,
                 color: this._config.colors[entityId] || this.getDefaultColor(i)
@@ -429,11 +429,11 @@ class SkylightCalendarCard extends HTMLElement {
 
             if (events && Array.isArray(events)) {
               events.forEach(event => {
-                const key = `${entityId}|${event.uid || ''}|${event.recurring_event_id || ''}|${event.start?.dateTime || event.start?.date || event.start || ''}|${event.end?.dateTime || event.end?.date || event.end || ''}|${event.summary || ''}`;
+                const key = this.getEventIdentityKey(entityId, event);
                 if (seen.has(key)) return;
                 seen.add(key);
 
-                newEvents.push({
+                fetchedEvents.push({
                   ...event,
                   entityId,
                   color: this._config.colors[entityId] || this.getDefaultColor(i)
@@ -448,9 +448,109 @@ class SkylightCalendarCard extends HTMLElement {
       }
     }
 
-    newEvents.sort((a, b) => this.getEventStartDate(a) - this.getEventStartDate(b));
-    this._events = newEvents.slice(0, this._config.maxEvents);
-    this._fetching = false;
+    return fetchedEvents;
+  }
+
+  mergeEvents(existingEvents, incomingEvents) {
+    const mergedByKey = new Map();
+
+    existingEvents.forEach(event => {
+      mergedByKey.set(this.getEventIdentityKey(event.entityId, event), event);
+    });
+
+    incomingEvents.forEach(event => {
+      mergedByKey.set(this.getEventIdentityKey(event.entityId, event), event);
+    });
+
+    const merged = Array.from(mergedByKey.values());
+    merged.sort((a, b) => this.getEventStartDate(a) - this.getEventStartDate(b));
+    return merged.slice(0, this._config.maxEvents);
+  }
+
+  async updateEvents() {
+    if (!this._hass || this._fetching) return;
+
+    const { startDate, endDate } = this.getEventFetchRange();
+    this._fetching = true;
+    this._lastFetch = Date.now();
+
+    try {
+      const newEvents = await this.fetchEventsInRange(startDate, endDate);
+      newEvents.sort((a, b) => this.getEventStartDate(a) - this.getEventStartDate(b));
+      this._events = newEvents.slice(0, this._config.maxEvents);
+      this._loadedEventRange = { startDate, endDate };
+      this.render();
+    } finally {
+      this._fetching = false;
+    }
+  }
+
+  async extendEventsForRange(startDate, endDate) {
+    if (!this._hass || this._fetching) return;
+
+    this._fetching = true;
+    this._lastFetch = Date.now();
+
+    try {
+      const additionalEvents = await this.fetchEventsInRange(startDate, endDate);
+      this._events = this.mergeEvents(this._events, additionalEvents);
+      this.render();
+    } finally {
+      this._fetching = false;
+    }
+  }
+
+  isDateRangeCoveredByLoadedEvents(targetStartDate, targetEndDate) {
+    if (!this._loadedEventRange) return false;
+
+    return targetStartDate >= this._loadedEventRange.startDate &&
+           targetEndDate <= this._loadedEventRange.endDate;
+  }
+
+  async ensureEventsForCurrentRange({ force = false } = {}) {
+    const shouldRefreshForAge = !this._lastFetch || (Date.now() - this._lastFetch > 60000);
+    const { startDate: visibleStartDate, endDate: visibleEndDate } = this.getVisibleDateRange();
+
+    if (force || shouldRefreshForAge || !this._loadedEventRange) {
+      await this.updateEvents();
+      return;
+    }
+
+    // Gate fetches on the actually visible range. If the user can already see
+    // all required dates from loaded data, avoid any network call.
+    if (this.isDateRangeCoveredByLoadedEvents(visibleStartDate, visibleEndDate)) {
+      this.render();
+      return;
+    }
+
+    // Once visible range falls outside loaded coverage, fetch around current view
+    // (with buffer) and only request missing leading/trailing segments.
+    const { startDate, endDate } = this.getEventFetchRange();
+    const missingRanges = [];
+
+    if (startDate < this._loadedEventRange.startDate) {
+      const missingStartEnd = new Date(this._loadedEventRange.startDate);
+      missingStartEnd.setDate(missingStartEnd.getDate() - 1);
+      missingStartEnd.setHours(23, 59, 59, 999);
+      missingRanges.push({ startDate, endDate: missingStartEnd });
+    }
+
+    if (endDate > this._loadedEventRange.endDate) {
+      const missingEndStart = new Date(this._loadedEventRange.endDate);
+      missingEndStart.setDate(missingEndStart.getDate() + 1);
+      missingEndStart.setHours(0, 0, 0, 0);
+      missingRanges.push({ startDate: missingEndStart, endDate });
+    }
+
+    for (const range of missingRanges) {
+      await this.extendEventsForRange(range.startDate, range.endDate);
+    }
+
+    this._loadedEventRange = {
+      startDate: new Date(Math.min(this._loadedEventRange.startDate.getTime(), startDate.getTime())),
+      endDate: new Date(Math.max(this._loadedEventRange.endDate.getTime(), endDate.getTime()))
+    };
+
     this.render();
   }
 
@@ -2364,7 +2464,7 @@ class SkylightCalendarCard extends HTMLElement {
         this._viewMode = button.getAttribute('data-view');
         this._config.view_mode = this._viewMode;
         this.setWeekStart();
-        this.render();
+        this.ensureEventsForCurrentRange();
       });
     });
     
@@ -2406,8 +2506,7 @@ class SkylightCalendarCard extends HTMLElement {
           this.setWeekStart();
         }
       }
-      this._lastFetch = null; // Force refresh
-      this.updateEvents();
+      this.ensureEventsForCurrentRange();
     });
     
     nextButton?.addEventListener('click', () => {
@@ -2430,8 +2529,7 @@ class SkylightCalendarCard extends HTMLElement {
           this.setWeekStart();
         }
       }
-      this._lastFetch = null; // Force refresh
-      this.updateEvents();
+      this.ensureEventsForCurrentRange();
     });
     
     todayButton?.addEventListener('click', () => {
@@ -2439,8 +2537,7 @@ class SkylightCalendarCard extends HTMLElement {
       if (this._config.rolling_days === null) {
         this.setWeekStart();
       }
-      this._lastFetch = null; // Force refresh
-      this.updateEvents();
+      this.ensureEventsForCurrentRange();
     });
     
     // Event click handlers for all view modes
