@@ -378,54 +378,40 @@ class SkylightCalendarCard extends HTMLElement {
 
   async updateEvents() {
     if (!this._hass || this._fetching) return;
-    
+
     this._fetching = true;
     this._lastFetch = Date.now();
     const newEvents = [];
-    
-    // Get date range for fetching events
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 30); // 30 days ago
-    const endDate = new Date();
-    endDate.setDate(endDate.getDate() + 60); // 60 days from now
-    
-    const startStr = startDate.toISOString();
-    const endStr = endDate.toISOString();
-    
+
+    // Fetch around the currently visible period and split requests into smaller
+    // windows to avoid backend/integration range limits.
+    const { startDate, endDate } = this.getEventFetchRange();
+    const chunks = this.getDateRangeChunks(startDate, endDate, 30);
+
     // Fetch events for each calendar
     for (let i = 0; i < this._config.entities.length; i++) {
       const entityId = this._config.entities[i];
-      
-      try {
-        // Use WebSocket API to get calendar events
-        const events = await this._hass.callWS({
-          type: 'calendar/event/list',
-          entity_id: entityId,
-          start_date_time: startStr,
-          end_date_time: endStr
-        });
-        
-        if (events && Array.isArray(events)) {
-          events.forEach(event => {
-            newEvents.push({
-              ...event,
-              entityId,
-              color: this._config.colors[entityId] || this.getDefaultColor(i)
-            });
-          });
-        }
-      } catch (error) {
-        // WebSocket API might not be available in older HA versions or for some integrations
-        // Try REST API fallback without logging (this is expected)
-        
-        // Fallback: try the REST API
+      const seen = new Set();
+
+      for (const chunk of chunks) {
+        const chunkStartStr = chunk.startDate.toISOString();
+        const chunkEndStr = chunk.endDate.toISOString();
+
         try {
-          const startDateOnly = startDate.toISOString().split('T')[0];
-          const endDateOnly = endDate.toISOString().split('T')[0];
-          const events = await this._hass.callApi('GET', `calendars/${entityId}?start=${startDateOnly}T00:00:00Z&end=${endDateOnly}T23:59:59Z`);
-          
+          // Use WebSocket API to get calendar events
+          const events = await this._hass.callWS({
+            type: 'calendar/event/list',
+            entity_id: entityId,
+            start_date_time: chunkStartStr,
+            end_date_time: chunkEndStr
+          });
+
           if (events && Array.isArray(events)) {
             events.forEach(event => {
+              const key = `${entityId}|${event.uid || ''}|${event.recurring_event_id || ''}|${event.start?.dateTime || event.start?.date || event.start || ''}|${event.end?.dateTime || event.end?.date || event.end || ''}|${event.summary || ''}`;
+              if (seen.has(key)) return;
+              seen.add(key);
+
               newEvents.push({
                 ...event,
                 entityId,
@@ -433,17 +419,128 @@ class SkylightCalendarCard extends HTMLElement {
               });
             });
           }
-        } catch (error2) {
-          // Both methods failed - this is a real error
-          console.error(`Failed to fetch events for ${entityId}:`, error2.message || error2);
+        } catch (error) {
+          // WebSocket API might not be available in older HA versions or for some integrations
+          // Try REST API fallback without logging (this is expected)
+          try {
+            const startDateOnly = chunk.startDate.toISOString().split('T')[0];
+            const endDateOnly = chunk.endDate.toISOString().split('T')[0];
+            const events = await this._hass.callApi('GET', `calendars/${entityId}?start=${startDateOnly}T00:00:00Z&end=${endDateOnly}T23:59:59Z`);
+
+            if (events && Array.isArray(events)) {
+              events.forEach(event => {
+                const key = `${entityId}|${event.uid || ''}|${event.recurring_event_id || ''}|${event.start?.dateTime || event.start?.date || event.start || ''}|${event.end?.dateTime || event.end?.date || event.end || ''}|${event.summary || ''}`;
+                if (seen.has(key)) return;
+                seen.add(key);
+
+                newEvents.push({
+                  ...event,
+                  entityId,
+                  color: this._config.colors[entityId] || this.getDefaultColor(i)
+                });
+              });
+            }
+          } catch (error2) {
+            // Both methods failed - this is a real error
+            console.error(`Failed to fetch events for ${entityId}:`, error2.message || error2);
+          }
         }
       }
     }
-    
-    newEvents.sort((a, b) => new Date(a.start) - new Date(b.start));
-    this._events = newEvents;
+
+    newEvents.sort((a, b) => this.getEventStartDate(a) - this.getEventStartDate(b));
+    this._events = newEvents.slice(0, this._config.maxEvents);
     this._fetching = false;
     this.render();
+  }
+
+  getEventFetchRange() {
+    const { startDate: visibleStart, endDate: visibleEnd } = this.getVisibleDateRange();
+
+    // Keep a small look-behind and look-ahead buffer.
+    const startDate = new Date(visibleStart);
+    startDate.setDate(startDate.getDate() - 7);
+
+    const endDate = new Date(visibleEnd);
+    endDate.setDate(endDate.getDate() + 30);
+
+    return { startDate, endDate };
+  }
+
+  getVisibleDateRange() {
+    // Month rolling-weeks mode: from start of anchor week through configured weeks.
+    if (this._viewMode === 'month' && this._config.rolling_weeks !== null) {
+      const anchorDate = new Date(this._currentDate);
+      anchorDate.setHours(0, 0, 0, 0);
+      const currentDay = anchorDate.getDay();
+      const diff = (currentDay - this._config.firstDayOfWeek + 7) % 7;
+
+      const startDate = new Date(anchorDate);
+      startDate.setDate(anchorDate.getDate() - diff);
+      startDate.setHours(0, 0, 0, 0);
+
+      const endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + ((this._config.rolling_weeks + 1) * 7) - 1);
+      endDate.setHours(23, 59, 59, 999);
+      return { startDate, endDate };
+    }
+
+    // Standard month mode: full rendered grid (including adjacent month cells).
+    if (this._viewMode === 'month') {
+      const year = this._currentDate.getFullYear();
+      const month = this._currentDate.getMonth();
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const startOffset = (firstDay - this._config.firstDayOfWeek + 7) % 7;
+      const totalCells = startOffset + daysInMonth;
+      const trailingCells = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+
+      const startDate = new Date(year, month, 1 - startOffset);
+      startDate.setHours(0, 0, 0, 0);
+
+      const endDate = new Date(year, month, daysInMonth + trailingCells);
+      endDate.setHours(23, 59, 59, 999);
+
+      return { startDate, endDate };
+    }
+
+    // Week views: from first shown day to last shown day.
+    const weekDays = this.getWeekDays();
+    const startDate = new Date(weekDays[0]);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(weekDays[weekDays.length - 1]);
+    endDate.setHours(23, 59, 59, 999);
+    return { startDate, endDate };
+  }
+
+  getDateRangeChunks(startDate, endDate, chunkDays = 30) {
+    const chunks = [];
+    let cursor = new Date(startDate);
+    cursor.setHours(0, 0, 0, 0);
+
+    while (cursor <= endDate) {
+      const chunkStart = new Date(cursor);
+      const chunkEnd = new Date(cursor);
+      chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1);
+      if (chunkEnd > endDate) {
+        chunkEnd.setTime(endDate.getTime());
+      }
+      chunkEnd.setHours(23, 59, 59, 999);
+
+      chunks.push({ startDate: chunkStart, endDate: chunkEnd });
+
+      cursor = new Date(chunkEnd);
+      cursor.setDate(cursor.getDate() + 1);
+      cursor.setHours(0, 0, 0, 0);
+    }
+
+    return chunks;
+  }
+
+  getEventStartDate(event) {
+    if (event.start?.dateTime) return new Date(event.start.dateTime);
+    if (event.start?.date) return new Date(`${event.start.date}T00:00:00`);
+    return new Date(event.start);
   }
 
   getDefaultColor(index) {
