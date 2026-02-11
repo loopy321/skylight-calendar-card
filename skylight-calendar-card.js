@@ -507,7 +507,7 @@ class SkylightCalendarCard extends HTMLElement {
            targetEndDate <= this._loadedEventRange.endDate;
   }
 
-  async ensureEventsForCurrentRange({ force = false } = {}) {
+  async ensureEventsForCurrentRange({ force = false, renderIfCovered = false } = {}) {
     const shouldRefreshForAge = !this._lastFetch || (Date.now() - this._lastFetch > 60000);
     const { startDate: visibleStartDate, endDate: visibleEndDate } = this.getVisibleDateRange();
 
@@ -519,6 +519,9 @@ class SkylightCalendarCard extends HTMLElement {
     // Gate fetches on the actually visible range. If the user can already see
     // all required dates from loaded data, avoid any network call.
     if (this.isDateRangeCoveredByLoadedEvents(visibleStartDate, visibleEndDate)) {
+      if (renderIfCovered) {
+        this.render();
+      }
       return;
     }
 
@@ -2436,7 +2439,7 @@ class SkylightCalendarCard extends HTMLElement {
         this._viewMode = button.getAttribute('data-view');
         this._config.view_mode = this._viewMode;
         this.setWeekStart();
-        this.ensureEventsForCurrentRange();
+        this.ensureEventsForCurrentRange({ renderIfCovered: true });
       });
     });
     
@@ -2478,7 +2481,7 @@ class SkylightCalendarCard extends HTMLElement {
           this.setWeekStart();
         }
       }
-      this.ensureEventsForCurrentRange();
+      this.ensureEventsForCurrentRange({ renderIfCovered: true });
     });
     
     nextButton?.addEventListener('click', () => {
@@ -2501,7 +2504,7 @@ class SkylightCalendarCard extends HTMLElement {
           this.setWeekStart();
         }
       }
-      this.ensureEventsForCurrentRange();
+      this.ensureEventsForCurrentRange({ renderIfCovered: true });
     });
     
     todayButton?.addEventListener('click', () => {
@@ -2509,7 +2512,7 @@ class SkylightCalendarCard extends HTMLElement {
       if (this._config.rolling_days === null) {
         this.setWeekStart();
       }
-      this.ensureEventsForCurrentRange();
+      this.ensureEventsForCurrentRange({ renderIfCovered: true });
     });
     
     // Event click handlers for all view modes
