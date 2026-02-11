@@ -2,8 +2,7 @@
 
 A beautiful, customizable calendar card for Home Assistant that mimics the design and functionality of the popular Skylight Calendar. Perfect for families to organize schedules, events, and activities.
 
-<img width="1892" height="892" alt="image" src="https://github.com/user-attachments/assets/4ed9f271-4ac4-45b4-86d7-0afc2246d6db" />
-
+![image](https://github.com/user-attachments/assets/4ed9f271-4ac4-45b4-86d7-0afc2246d6db)
 
 ## Features
 
