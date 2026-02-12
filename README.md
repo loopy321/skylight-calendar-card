@@ -19,6 +19,7 @@ A beautiful, customizable calendar card for Home Assistant that mimics the desig
 - 🎨 **Customizable**: Configure colors, starting day of week, visible days, and more
 - 🌈 **Custom Header Colors**: Personalize the banner with solid colors or gradients
 - ⏰ **Flexible Schedule**: Customize time range for schedule view (e.g., 8am-9pm)
+- ⏱️ **Schedule Controls**: Optional now-line, optional calendar bubbles, and per-calendar time visibility
 - 📏 **Height Control**: Adjust vertical scale or enable compact mode to fit screen
 - 🎛️ **Default View**: Set which view loads by default (month/week/schedule)
 - 📏 **Compact Header**: Optional single-row header layout for space savings
@@ -85,6 +86,10 @@ week_end_hour: 21   # End hour for week-standard view (9pm = 21)
 height_scale: 0.6   # Make schedule more compact (50-200%)
 compact_height: true  # Fit to screen with scrolling
 compact_header: true  # Single-row header layout
+hide_event_calendar_bubble: false  # Hide the calendar initial bubble on events
+hide_times_for_calendars:  # Hide start/end times in schedule view for specific calendars
+  - calendar.kids_activities
+show_current_time_bar: true  # Show a red "current time" line in schedule view
 enable_event_management: true  # Enable event creation (default: true)
 readonly_calendars:  # Calendars that cannot be modified
   - calendar.holidays
@@ -160,6 +165,9 @@ rolling_weeks: 3  # Show current + 3 more weeks (28 days)
 | `height_scale` | float | `1.0` | Height scaling factor (0.5-2.0, affects schedule view) |
 | `compact_height` | boolean | `false` | Fit calendar to screen height with scroll |
 | `compact_header` | boolean | `false` | Single-row header with inline badges |
+| `hide_event_calendar_bubble` | boolean | `false` | Hide the calendar initial bubble shown inside events |
+| `hide_times_for_calendars` | list | `[]` | Calendar entities whose start/end times should be hidden in schedule view |
+| `show_current_time_bar` | boolean | `false` | Show a red current-time indicator line in schedule view |
 | `show_week_numbers` | boolean | `false` | Show week numbers on the left side |
 | `max_events` | integer | `100` | Maximum number of events to load |
 | `enable_event_management` | boolean | `true` | Enable event creation features |

@@ -310,6 +310,9 @@ class SkylightCalendarCard extends HTMLElement {
       compact_height: config.compact_height || false, // Fit to screen height
       height_scale: config.height_scale || 1.0, // Scale factor for height (0.5 = 50%, 2.0 = 200%)
       compact_header: config.compact_header || false, // Compact header layout
+      hide_event_calendar_bubble: config.hide_event_calendar_bubble || false, // Hide calendar initial bubble on events
+      hide_times_for_calendars: config.hide_times_for_calendars || [], // Hide times in schedule view for specific calendars
+      show_current_time_bar: config.show_current_time_bar || false, // Show a "now" indicator in schedule view
       header_color: config.header_color !== undefined ? config.header_color : 'var(--primary-color)', // Custom header background color/gradient
       enable_event_management: config.enable_event_management !== false, // Enable create/edit/delete
       readonly_calendars: config.readonly_calendars || [], // Calendars that should not allow modifications
@@ -1313,6 +1316,27 @@ class SkylightCalendarCard extends HTMLElement {
         float: right;
         margin-left: 8px;
       }
+
+      .current-time-line {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: #ef4444;
+        z-index: 5;
+        pointer-events: none;
+      }
+
+      .current-time-line::before {
+        content: '';
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ef4444;
+        left: -4px;
+        top: -3px;
+      }
       
       .event-modal {
         display: none;
@@ -1984,6 +2008,8 @@ class SkylightCalendarCard extends HTMLElement {
     const allDayHeight = hasAllDayEvents 
       ? 16 + (maxAllDayEvents * 24) + ((maxAllDayEvents - 1) * 4) + 2
       : 0;
+
+    const showCurrentTimeBar = this._config.show_current_time_bar && this.shouldShowCurrentTimeBar(today, startHour, endHour);
     
     return `
       ${!this._config.compact_header ? this.renderCalendarBadges() : ''}
@@ -2016,6 +2042,7 @@ class SkylightCalendarCard extends HTMLElement {
                 ${hours.map(hour => `
                   <div class="day-time-slot" style="height: ${hourHeight}px;" data-hour="${hour}"></div>
                 `).join('')}
+                ${showCurrentTimeBar && isToday ? this.renderCurrentTimeLine(startHour, hourHeight) : ''}
                 ${this.renderTimedEventsForDay(dayEvents, date, startHour, endHour, hourHeight)}
               </div>
             </div>
@@ -2194,7 +2221,7 @@ class SkylightCalendarCard extends HTMLElement {
              style="top: ${top}px; height: ${height}px; width: ${width}; left: ${left}; background: ${bgColor}; border-left: 4px solid ${event.color}"
              data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
           <div class="week-standard-event-title">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</div>
-          <div class="week-standard-event-time">${this.formatTime(eventStart)} - ${this.formatTime(eventEnd)}</div>
+          ${this.shouldShowEventTime(event) ? `<div class="week-standard-event-time">${this.formatTime(eventStart)} - ${this.formatTime(eventEnd)}</div>` : ''}
           ${this.renderEventIcon(event)}
         </div>
       `;
@@ -2202,6 +2229,10 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   renderEventIcon(event) {
+    if (this._config.hide_event_calendar_bubble) {
+      return '';
+    }
+
     // Get the initials or icon based on calendar
     const entityId = event.entityId;
     const name = this.getCalendarName(entityId);
@@ -2223,6 +2254,29 @@ class SkylightCalendarCard extends HTMLElement {
     const nb = Math.round(b + (255 - b) * amount);
     
     return `rgb(${nr}, ${ng}, ${nb})`;
+  }
+
+  shouldShowEventTime(event) {
+    if (!event || !event.entityId) return true;
+    return !this._config.hide_times_for_calendars.includes(event.entityId);
+  }
+
+  shouldShowCurrentTimeBar(today, startHour, endHour) {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    if (now.toDateString() !== today.toDateString()) {
+      return false;
+    }
+
+    const currentHourFloat = now.getHours() + (now.getMinutes() / 60);
+    return currentHourFloat >= startHour && currentHourFloat <= (endHour + 1);
+  }
+
+  renderCurrentTimeLine(startHour, hourHeight) {
+    const now = new Date();
+    const currentHourFloat = now.getHours() + (now.getMinutes() / 60);
+    const top = (currentHourFloat - startHour) * hourHeight;
+    return `<div class="current-time-line" style="top: ${top}px;"></div>`;
   }
 
   formatHour(hour) {
@@ -3663,6 +3717,9 @@ class SkylightCalendarCard extends HTMLElement {
       week_days: [0, 1, 2, 3, 4, 5, 6],
       week_start_hour: 8,
       week_end_hour: 21,
+      hide_event_calendar_bubble: false,
+      hide_times_for_calendars: [],
+      show_current_time_bar: false,
       enable_event_management: true
     };
   }
