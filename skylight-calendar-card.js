@@ -34,6 +34,10 @@ const TRANSLATIONS = {
       recurrenceWeekly: 'Weekly',
       recurrenceMonthly: 'Monthly',
       recurrenceYearly: 'Yearly',
+      recurrenceNever: 'Never',
+      recurrenceOn: 'On',
+      recurrenceAfter: 'After',
+      recurrenceOccurrences: 'occurrences',
       recurrenceSelectWeekday: 'Select at least one weekday for weekly recurring events',
       start: 'Start',
       end: 'End',
@@ -129,6 +133,10 @@ const TRANSLATIONS = {
       recurrenceWeekly: 'Hebdomadaire',
       recurrenceMonthly: 'Mensuel',
       recurrenceYearly: 'Annuel',
+      recurrenceNever: 'Jamais',
+      recurrenceOn: 'Le',
+      recurrenceAfter: 'Après',
+      recurrenceOccurrences: 'occurrences',
       recurrenceSelectWeekday: 'Sélectionnez au moins un jour pour les événements hebdomadaires',
       start: 'Début',
       end: 'Fin',
@@ -224,6 +232,10 @@ const TRANSLATIONS = {
       recurrenceWeekly: 'Wöchentlich',
       recurrenceMonthly: 'Monatlich',
       recurrenceYearly: 'Jährlich',
+      recurrenceNever: 'Nie',
+      recurrenceOn: 'Am',
+      recurrenceAfter: 'Nach',
+      recurrenceOccurrences: 'Vorkommen',
       recurrenceSelectWeekday: 'Wählen Sie mindestens einen Wochentag für wöchentliche Termine aus',
       start: 'Beginn',
       end: 'Ende',
@@ -1575,6 +1587,45 @@ class SkylightCalendarCard extends HTMLElement {
         cursor: pointer;
         user-select: none;
       }
+
+      .recurrence-ends-label {
+        margin-bottom: 10px;
+      }
+
+      .recurrence-end-row {
+        display: grid;
+        grid-template-columns: 110px minmax(0, 1fr);
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .recurrence-end-option {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 14px;
+        color: #374151;
+        cursor: pointer;
+      }
+
+      .recurrence-end-option input[type="radio"] {
+        margin: 0;
+      }
+
+      .recurrence-end-row .form-input {
+        margin: 0;
+      }
+
+      .recurrence-after-input {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .recurrence-after-input .form-input {
+        max-width: 80px;
+      }
       
       .form-error {
         color: #ef4444;
@@ -2781,6 +2832,78 @@ class SkylightCalendarCard extends HTMLElement {
     return parsed;
   }
 
+  getRecurrenceEndMode(recurrenceData = {}) {
+    if (recurrenceData.count) return 'after';
+    if (recurrenceData.untilDate) return 'on';
+    return 'never';
+  }
+
+  syncRecurrenceEndInputs() {
+    const selected = this.shadowRoot.querySelector('input[name="event-recurrence-end-mode"]:checked')?.value || 'never';
+    const untilInput = this.shadowRoot.getElementById('event-recurrence-until');
+    const countInput = this.shadowRoot.getElementById('event-recurrence-count');
+
+    if (!untilInput || !countInput) return;
+
+    if (selected === 'on') {
+      untilInput.disabled = false;
+      countInput.disabled = true;
+      countInput.value = '';
+    } else if (selected === 'after') {
+      untilInput.disabled = true;
+      untilInput.value = '';
+      countInput.disabled = false;
+    } else {
+      untilInput.disabled = true;
+      untilInput.value = '';
+      countInput.disabled = true;
+      countInput.value = '';
+    }
+  }
+
+  setupStartEndDurationSync({ startInputId, endInputId, isDateOnly = false }) {
+    const startInput = this.shadowRoot.getElementById(startInputId);
+    const endInput = this.shadowRoot.getElementById(endInputId);
+    if (!startInput || !endInput) return;
+
+    const toDate = (value) => {
+      if (!value) return null;
+      return isDateOnly ? new Date(`${value}T00:00:00`) : new Date(value);
+    };
+
+    const fromDate = (date) => {
+      if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      if (isDateOnly) {
+        return `${year}-${month}-${day}`;
+      }
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
+
+    let durationMs = 0;
+    const recalculateDuration = () => {
+      const start = toDate(startInput.value);
+      const end = toDate(endInput.value);
+      if (!start || !end) return;
+      durationMs = end.getTime() - start.getTime();
+    };
+
+    recalculateDuration();
+
+    startInput.addEventListener('change', () => {
+      const nextStart = toDate(startInput.value);
+      if (!nextStart) return;
+      const nextEnd = new Date(nextStart.getTime() + durationMs);
+      endInput.value = fromDate(nextEnd);
+    });
+
+    endInput.addEventListener('change', recalculateDuration);
+  }
+
   showCreateEventModal(defaultDate = null, defaultTime = null) {
 
     const modal = this.shadowRoot.getElementById('event-modal');
@@ -2903,12 +3026,31 @@ class SkylightCalendarCard extends HTMLElement {
               </div>
             </div>
             <div class="form-group">
-              <label class="form-label">${this.t('recurrenceEndsOn')}</label>
-              <input type="date" class="form-input" id="event-recurrence-until" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">${this.t('recurrenceCount')}</label>
-              <input type="number" class="form-input" id="event-recurrence-count" min="1" placeholder="10" />
+              <label class="form-label recurrence-ends-label">${this.t('recurrenceEndsOn')}</label>
+              <div class="recurrence-end-row">
+                <label class="recurrence-end-option" for="event-recurrence-end-never">
+                  <input type="radio" name="event-recurrence-end-mode" id="event-recurrence-end-never" value="never" checked />
+                  <span>${this.t('recurrenceNever')}</span>
+                </label>
+                <div></div>
+              </div>
+              <div class="recurrence-end-row">
+                <label class="recurrence-end-option" for="event-recurrence-end-on">
+                  <input type="radio" name="event-recurrence-end-mode" id="event-recurrence-end-on" value="on" />
+                  <span>${this.t('recurrenceOn')}</span>
+                </label>
+                <input type="date" class="form-input" id="event-recurrence-until" disabled />
+              </div>
+              <div class="recurrence-end-row">
+                <label class="recurrence-end-option" for="event-recurrence-end-after">
+                  <input type="radio" name="event-recurrence-end-mode" id="event-recurrence-end-after" value="after" />
+                  <span>${this.t('recurrenceAfter')}</span>
+                </label>
+                <div class="recurrence-after-input">
+                  <input type="number" class="form-input" id="event-recurrence-count" min="1" placeholder="13" disabled />
+                  <span>${this.t('recurrenceOccurrences')}</span>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -2975,6 +3117,7 @@ class SkylightCalendarCard extends HTMLElement {
     const allDayFields = this.shadowRoot.getElementById('all-day-event-fields');
     const recurringFields = this.shadowRoot.getElementById('recurring-event-fields');
     const recurrenceWeekdaysGroup = this.shadowRoot.getElementById('event-recurrence-weekdays-group');
+    const recurrenceEndModeInputs = this.shadowRoot.querySelectorAll('input[name="event-recurrence-end-mode"]');
     const errorDiv = this.shadowRoot.getElementById('form-error');
     
     // Toggle all-day fields
@@ -2997,7 +3140,12 @@ class SkylightCalendarCard extends HTMLElement {
     });
 
     recurrenceFrequency.addEventListener('change', updateRecurringFrequencyVisibility);
+    recurrenceEndModeInputs.forEach((input) => input.addEventListener('change', () => this.syncRecurrenceEndInputs()));
     updateRecurringFrequencyVisibility();
+    this.syncRecurrenceEndInputs();
+
+    this.setupStartEndDurationSync({ startInputId: 'event-start', endInputId: 'event-end' });
+    this.setupStartEndDurationSync({ startInputId: 'event-start-date', endInputId: 'event-end-date', isDateOnly: true });
     
     // Close button
     this.shadowRoot.getElementById('close-modal').addEventListener('click', () => {
@@ -3080,8 +3228,11 @@ class SkylightCalendarCard extends HTMLElement {
       if (recurringCheckbox.checked) {
         const frequency = this.shadowRoot.getElementById('event-recurrence-frequency').value;
         const interval = this.shadowRoot.getElementById('event-recurrence-interval').value;
-        const untilDate = this.shadowRoot.getElementById('event-recurrence-until').value;
-        const recurrenceCount = this.shadowRoot.getElementById('event-recurrence-count').value;
+        const untilDateRaw = this.shadowRoot.getElementById('event-recurrence-until').value;
+        const recurrenceCountRaw = this.shadowRoot.getElementById('event-recurrence-count').value;
+        const recurrenceEndMode = this.shadowRoot.querySelector('input[name="event-recurrence-end-mode"]:checked')?.value || 'never';
+        const untilDate = recurrenceEndMode === 'on' ? untilDateRaw : '';
+        const recurrenceCount = recurrenceEndMode === 'after' ? recurrenceCountRaw : '';
         const byDay = Array.from(this.shadowRoot.querySelectorAll('.event-recurrence-weekday:checked')).map((el) => el.value);
 
         if (frequency === 'WEEKLY' && byDay.length === 0) {
@@ -3225,12 +3376,31 @@ class SkylightCalendarCard extends HTMLElement {
               </div>
             </div>
             <div class="form-group">
-              <label class="form-label">${this.t('recurrenceEndsOn')}</label>
-              <input type="date" class="form-input" id="event-recurrence-until" value="${this.escapeHtml(recurrenceData.untilDate || '')}" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">${this.t('recurrenceCount')}</label>
-              <input type="number" class="form-input" id="event-recurrence-count" min="1" placeholder="10" value="${this.escapeHtml(recurrenceData.count || '')}" />
+              <label class="form-label recurrence-ends-label">${this.t('recurrenceEndsOn')}</label>
+              <div class="recurrence-end-row">
+                <label class="recurrence-end-option" for="event-recurrence-end-never">
+                  <input type="radio" name="event-recurrence-end-mode" id="event-recurrence-end-never" value="never" ${this.getRecurrenceEndMode(recurrenceData) === 'never' ? 'checked' : ''} />
+                  <span>${this.t('recurrenceNever')}</span>
+                </label>
+                <div></div>
+              </div>
+              <div class="recurrence-end-row">
+                <label class="recurrence-end-option" for="event-recurrence-end-on">
+                  <input type="radio" name="event-recurrence-end-mode" id="event-recurrence-end-on" value="on" ${this.getRecurrenceEndMode(recurrenceData) === 'on' ? 'checked' : ''} />
+                  <span>${this.t('recurrenceOn')}</span>
+                </label>
+                <input type="date" class="form-input" id="event-recurrence-until" value="${this.escapeHtml(recurrenceData.untilDate || '')}" ${this.getRecurrenceEndMode(recurrenceData) === 'on' ? '' : 'disabled'} />
+              </div>
+              <div class="recurrence-end-row">
+                <label class="recurrence-end-option" for="event-recurrence-end-after">
+                  <input type="radio" name="event-recurrence-end-mode" id="event-recurrence-end-after" value="after" ${this.getRecurrenceEndMode(recurrenceData) === 'after' ? 'checked' : ''} />
+                  <span>${this.t('recurrenceAfter')}</span>
+                </label>
+                <div class="recurrence-after-input">
+                  <input type="number" class="form-input" id="event-recurrence-count" min="1" placeholder="13" value="${this.escapeHtml(recurrenceData.count || '')}" ${this.getRecurrenceEndMode(recurrenceData) === 'after' ? '' : 'disabled'} />
+                  <span>${this.t('recurrenceOccurrences')}</span>
+                </div>
+              </div>
             </div>
           </div>
           
@@ -3299,6 +3469,7 @@ class SkylightCalendarCard extends HTMLElement {
     const allDayFields = this.shadowRoot.getElementById('all-day-event-fields');
     const recurringFields = this.shadowRoot.getElementById('recurring-event-fields');
     const recurrenceWeekdaysGroup = this.shadowRoot.getElementById('event-recurrence-weekdays-group');
+    const recurrenceEndModeInputs = this.shadowRoot.querySelectorAll('input[name="event-recurrence-end-mode"]');
     const errorDiv = this.shadowRoot.getElementById('form-error');
     
     // Toggle all-day fields
@@ -3321,7 +3492,12 @@ class SkylightCalendarCard extends HTMLElement {
     });
 
     recurrenceFrequency.addEventListener('change', updateRecurringFrequencyVisibility);
+    recurrenceEndModeInputs.forEach((input) => input.addEventListener('change', () => this.syncRecurrenceEndInputs()));
     updateRecurringFrequencyVisibility();
+    this.syncRecurrenceEndInputs();
+
+    this.setupStartEndDurationSync({ startInputId: 'event-start', endInputId: 'event-end' });
+    this.setupStartEndDurationSync({ startInputId: 'event-start-date', endInputId: 'event-end-date', isDateOnly: true });
     
     // Close button
     this.shadowRoot.getElementById('close-modal').addEventListener('click', () => {
@@ -3404,8 +3580,11 @@ class SkylightCalendarCard extends HTMLElement {
       if (recurringCheckbox.checked) {
         const frequency = this.shadowRoot.getElementById('event-recurrence-frequency').value;
         const interval = this.shadowRoot.getElementById('event-recurrence-interval').value;
-        const untilDate = this.shadowRoot.getElementById('event-recurrence-until').value;
-        const recurrenceCount = this.shadowRoot.getElementById('event-recurrence-count').value;
+        const untilDateRaw = this.shadowRoot.getElementById('event-recurrence-until').value;
+        const recurrenceCountRaw = this.shadowRoot.getElementById('event-recurrence-count').value;
+        const recurrenceEndMode = this.shadowRoot.querySelector('input[name="event-recurrence-end-mode"]:checked')?.value || 'never';
+        const untilDate = recurrenceEndMode === 'on' ? untilDateRaw : '';
+        const recurrenceCount = recurrenceEndMode === 'after' ? recurrenceCountRaw : '';
         const byDay = Array.from(this.shadowRoot.querySelectorAll('.event-recurrence-weekday:checked')).map((el) => el.value);
 
         if (frequency === 'WEEKLY' && byDay.length === 0) {
