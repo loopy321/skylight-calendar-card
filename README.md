@@ -25,6 +25,7 @@ A beautiful, customizable calendar card for Home Assistant that mimics the desig
 - 📏 **Compact Header**: Optional single-row header layout for space savings
 - **Multiple Language Support**: Supports English, French, and German, with an extensible framework for adding more languages
 - **Locale Support**: Supports various locales for setting days of week, month names, etc
+- **Dark Mode**: Add dark mode
 
 ## Installation
 
