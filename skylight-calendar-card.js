@@ -388,10 +388,11 @@ class SkylightCalendarCard extends HTMLElement {
       readonly_calendars: config.readonly_calendars || [], // Calendars that should not allow modifications
       language: config.language || null, // Language code for translations (e.g., 'en', 'de', 'fr')
       locale: config.locale || null, // Locale override for date/time formatting (e.g., 'en-US')
+      default_dark_mode: config.default_dark_mode ?? config.dark_mode ?? false, // Start in dark mode on initial load
       ...config
     };
     this._viewMode = this._config.default_view;
-    this._isDarkMode = !!config.dark_mode;
+    this._isDarkMode = !!this._config.default_dark_mode;
     this._loadedEventRange = null;
     this.setWeekStart();
     this.render();
@@ -2008,8 +2009,24 @@ class SkylightCalendarCard extends HTMLElement {
 
       .calendar-container.dark-mode .form-checkbox-label,
       .calendar-container.dark-mode .recurrence-end-option,
-      .calendar-container.dark-mode .modal-value {
+      .calendar-container.dark-mode .modal-value,
+      .calendar-container.dark-mode .form-label {
         color: #d6dee8;
+      }
+
+      .calendar-container.dark-mode .form-required {
+        color: #f87171;
+      }
+
+      .calendar-container.dark-mode .form-input::placeholder,
+      .calendar-container.dark-mode .form-textarea::placeholder {
+        color: #9aa6b8;
+      }
+
+      .calendar-container.dark-mode input[type="date"]::-webkit-calendar-picker-indicator,
+      .calendar-container.dark-mode input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+      .calendar-container.dark-mode input[type="time"]::-webkit-calendar-picker-indicator {
+        filter: invert(1) brightness(0.9);
       }
 
       .calendar-container.dark-mode .btn-secondary {
@@ -2091,10 +2108,10 @@ class SkylightCalendarCard extends HTMLElement {
         ${this._config.compact_header ? this.renderCompactHeader() : this.renderStandardHeader()}
         
         ${this.renderCalendarView()}
-      </div>
-      
-      <div class="event-modal" id="event-modal">
-        <div class="modal-content" id="modal-content">
+
+        <div class="event-modal" id="event-modal">
+          <div class="modal-content" id="modal-content">
+          </div>
         </div>
       </div>
     `;
