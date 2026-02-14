@@ -1012,6 +1012,7 @@ class SkylightCalendarCard extends HTMLElement {
       .day-cell {
         background: white;
         min-height: 100px;
+        min-width: 0;
         padding: 8px;
         position: relative;
         cursor: pointer;
@@ -1053,6 +1054,9 @@ class SkylightCalendarCard extends HTMLElement {
       .event {
         background: #3b82f6;
         color: white;
+        display: block;
+        width: 100%;
+        max-width: 100%;
         padding: 4px 6px;
         border-radius: 4px;
         font-size: 11px;
@@ -1060,6 +1064,7 @@ class SkylightCalendarCard extends HTMLElement {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        box-sizing: border-box;
         cursor: pointer;
         transition: transform 0.2s, box-shadow 0.2s;
         font-weight: 500;
