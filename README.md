@@ -112,7 +112,7 @@ title: Next 7 Days
 entities:
   - calendar.family
 default_view: week-standard
-rolling_days: 6  # Show today + 6 more days = 7 total days
+rolling_days_schedule: 6  # Schedule view: show today + 6 more days = 7 total days
 week_start_hour: 6
 week_end_hour: 22
 height_scale: 0.5
@@ -160,7 +160,8 @@ rolling_weeks: 3  # Show current + 3 more weeks (28 days)
 | `header_color` | string | `'var(--primary-color)'` | Custom header background (solid color or gradient) |
 | `first_day_of_week` | integer | `0` | First day of week (0 = Sunday, 1 = Monday, etc.) |
 | `week_days` | list | `[0,1,2,3,4,5,6]` | Days to show in week views (0=Sun, 6=Sat) |
-| `rolling_days` | integer | `null` | Show today + N days (alternative to week_days) |
+| `rolling_days_week_compact` | integer | `null` | Compact week view: show today + N days (alternative to week_days) |
+| `rolling_days_schedule` | integer | `null` | Schedule view: show today + N days (alternative to week_days) |
 | `rolling_weeks` | integer | `null` | Show this week + N weeks in month view |
 | `week_start_hour` | integer | `8` | Start hour for week-standard view (0-23) |
 | `week_end_hour` | integer | `21` | End hour for week-standard view (0-23) |
@@ -491,7 +492,7 @@ title: Today's Tasks
 entities:
   - calendar.tasks
 default_view: week-compact
-rolling_days: 0  # Show only today
+rolling_days_week_compact: 0  # Show only today in compact week view
 enable_event_management: true
 ```
 
@@ -555,17 +556,18 @@ compact_height: true
 Perfect for dynamic date ranges that don't follow calendar weeks:
 
 ```yaml
-# Show next 3 days
-rolling_days: 2  # Today + 2 = 3 days
+# Compact week view: show next 3 days
+rolling_days_week_compact: 2  # Today + 2 = 3 days
 
-# Show next 10 days
-rolling_days: 9  # Today + 9 = 10 days
+# Schedule view: show next 10 days
+rolling_days_schedule: 9  # Today + 9 = 10 days
 
-# Show just today
-rolling_days: 0  # Today only
+# Show just today in both week views
+rolling_days_week_compact: 0
+rolling_days_schedule: 0
 ```
 
-Navigation buttons will advance by the number of days shown (rolling_days + 1).
+Navigation buttons advance by the number of days shown in the active view (`rolling_days_* + 1`).
 
 ### Using Rolling Weeks Mode
 
