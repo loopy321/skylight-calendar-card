@@ -358,10 +358,19 @@ class SkylightCalendarCard extends HTMLElement {
     this._weekStandardContainerTopInViewport = null;
     this._monthContainerTopInViewport = null;
     this._handleViewportResize = () => {
+      if (this.isEventManagementDialogOpen()) {
+        return;
+      }
+
       if (this._config.compact_height && (this._viewMode === 'week-standard' || this._viewMode === 'month')) {
         this.render();
       }
     };
+  }
+
+  isEventManagementDialogOpen() {
+    const modal = this.shadowRoot?.getElementById('event-modal');
+    return !!modal && modal.classList.contains('show');
   }
 
   setConfig(config) {
@@ -595,6 +604,12 @@ class SkylightCalendarCard extends HTMLElement {
     const shouldRefreshForAge = !this._lastFetch || (Date.now() - this._lastFetch > 60000);
     const { startDate: visibleStartDate, endDate: visibleEndDate } = this.getVisibleDateRange();
 
+    // Background stale refreshes run through this path via hass updates.
+    // Keep dialogs stable by postponing only those refreshes while modal is open.
+    if (this.isEventManagementDialogOpen() && (force || shouldRefreshForAge)) {
+      return;
+    }
+
     if (force || shouldRefreshForAge || !this._loadedEventRange) {
       await this.updateEvents();
       return;
@@ -770,6 +785,7 @@ class SkylightCalendarCard extends HTMLElement {
 
   updateWeekStandardFixedOffsetHeightFromDom() {
     if (this._viewMode !== 'week-standard' || !this._config.compact_height || !this.shadowRoot) return;
+    if (this.isEventManagementDialogOpen()) return;
 
     const container = this.shadowRoot.querySelector('.week-standard-container');
     const headerSpacer = this.shadowRoot.querySelector('.time-column-header-spacer');
@@ -802,6 +818,7 @@ class SkylightCalendarCard extends HTMLElement {
 
   updateMonthContainerTopInViewportFromDom() {
     if (this._viewMode !== 'month' || !this._config.compact_height || !this.shadowRoot) return;
+    if (this.isEventManagementDialogOpen()) return;
 
     const container = this.shadowRoot.querySelector('.calendar-grid');
     if (!container) return;
@@ -2056,6 +2073,12 @@ class SkylightCalendarCard extends HTMLElement {
         background: #353c45;
         color: #dde3ea;
         border-color: #556070;
+      }
+      
+      .calendar-container.dark-mode .time-slot {
+        background: #353c45;
+        color: #dde3ea;
+        border-color: #353c45;
       }
 
 	  .calendar-container.dark-mode .day-header {
