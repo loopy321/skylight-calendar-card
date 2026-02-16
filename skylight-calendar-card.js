@@ -381,7 +381,8 @@ class SkylightCalendarCard extends HTMLElement {
       view_mode: config.view_mode || 'month', // 'month', 'week-compact', 'week-standard'
       default_view: config.default_view || config.view_mode || 'month', // Default view on load
       week_days: config.week_days || [0, 1, 2, 3, 4, 5, 6], // Which days to show in week view
-      rolling_days: config.rolling_days || null, // If set, show current day + N days instead of week_days
+      rolling_days_week_compact: config.rolling_days_week_compact ?? null, // If set, compact week view shows current day + N days instead of week_days
+      rolling_days_schedule: config.rolling_days_schedule ?? null, // If set, schedule week view shows current day + N days instead of week_days
       rolling_weeks: config.rolling_weeks || null, // If set, show current week + N weeks in month view
       week_start_hour: config.week_start_hour || 8, // Start hour for week-standard view
       week_end_hour: config.week_end_hour || 21, // End hour for week-standard view (9pm)
@@ -850,14 +851,28 @@ class SkylightCalendarCard extends HTMLElement {
     this._weekStart = date;
   }
 
-  getWeekDays() {
-    // If rolling_days is set, show current date + N days
-    if (this._config.rolling_days !== null) {
+  getRollingDaysForView(viewMode = this._viewMode) {
+    if (viewMode === 'week-compact' && this._config.rolling_days_week_compact !== null) {
+      return this._config.rolling_days_week_compact;
+    }
+
+    if (viewMode === 'week-standard' && this._config.rolling_days_schedule !== null) {
+      return this._config.rolling_days_schedule;
+    }
+
+    return null;
+  }
+
+  getWeekDays(viewMode = this._viewMode) {
+    const rollingDays = this.getRollingDaysForView(viewMode);
+
+    // If rolling days are set, show current date + N days
+    if (rollingDays !== null) {
       const days = [];
       const startDate = new Date(this._currentDate);
       startDate.setHours(0, 0, 0, 0);
       
-      for (let i = 0; i <= this._config.rolling_days; i++) {
+      for (let i = 0; i <= rollingDays; i++) {
         const date = new Date(startDate);
         date.setDate(startDate.getDate() + i);
         days.push(date);
@@ -3066,12 +3081,13 @@ class SkylightCalendarCard extends HTMLElement {
           this._currentDate.setMonth(this._currentDate.getMonth() - 1);
         }
       } else {
-        // In rolling_days mode, advance by rolling_days + 1, otherwise by 7
-        const daysToAdvance = this._config.rolling_days !== null 
-          ? this._config.rolling_days + 1 
+        // In rolling-days mode, advance by rolling days + 1, otherwise by 7
+        const rollingDays = this.getRollingDaysForView();
+        const daysToAdvance = rollingDays !== null
+          ? rollingDays + 1
           : 7;
         this._currentDate.setDate(this._currentDate.getDate() - daysToAdvance);
-        if (this._config.rolling_days === null) {
+        if (rollingDays === null) {
           this.setWeekStart();
         }
       }
@@ -3089,12 +3105,13 @@ class SkylightCalendarCard extends HTMLElement {
           this._currentDate.setMonth(this._currentDate.getMonth() + 1);
         }
       } else {
-        // In rolling_days mode, advance by rolling_days + 1, otherwise by 7
-        const daysToAdvance = this._config.rolling_days !== null 
-          ? this._config.rolling_days + 1 
+        // In rolling-days mode, advance by rolling days + 1, otherwise by 7
+        const rollingDays = this.getRollingDaysForView();
+        const daysToAdvance = rollingDays !== null
+          ? rollingDays + 1
           : 7;
         this._currentDate.setDate(this._currentDate.getDate() + daysToAdvance);
-        if (this._config.rolling_days === null) {
+        if (rollingDays === null) {
           this.setWeekStart();
         }
       }
@@ -3103,7 +3120,7 @@ class SkylightCalendarCard extends HTMLElement {
     
     todayButton?.addEventListener('click', () => {
       this._currentDate = new Date();
-      if (this._config.rolling_days === null) {
+      if (this.getRollingDaysForView() === null) {
         this.setWeekStart();
       }
       this.ensureEventsForCurrentRange({ renderIfCovered: true });
