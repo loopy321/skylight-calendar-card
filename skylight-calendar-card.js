@@ -364,8 +364,52 @@ class SkylightCalendarCard extends HTMLElement {
 
       if (this._config.compact_height && (this._viewMode === 'week-standard' || this._viewMode === 'month')) {
         this.render();
+        return;
       }
+
+      this.updateCompactHeaderWrapState();
     };
+  }
+
+  updateCompactHeaderWrapState() {
+    if (!this.shadowRoot || !this._config.compact_header) return;
+
+    const compactHeader = this.shadowRoot.querySelector('.header-compact');
+    if (compactHeader) {
+      const topLevelChildren = Array.from(compactHeader.children).filter((child) => child.offsetParent !== null);
+      if (topLevelChildren.length <= 1) {
+        compactHeader.classList.remove('is-wrapped');
+      } else {
+        const firstTop = topLevelChildren[0].offsetTop;
+        const headerWrapped = topLevelChildren.some((child) => Math.abs(child.offsetTop - firstTop) > 1);
+        compactHeader.classList.toggle('is-wrapped', headerWrapped);
+      }
+    }
+
+    const controls = this.shadowRoot.querySelector('.compact-header-controls');
+    if (controls) {
+      const visibleChildren = Array.from(controls.children).filter((child) => child.offsetParent !== null);
+      if (visibleChildren.length <= 1) {
+        controls.classList.remove('is-wrapped');
+      } else {
+        const firstRowTop = visibleChildren[0].offsetTop;
+        const isWrapped = visibleChildren.some((child) => Math.abs(child.offsetTop - firstRowTop) > 1);
+        controls.classList.toggle('is-wrapped', isWrapped);
+      }
+    }
+
+    const badges = this.shadowRoot.querySelector('.calendar-badges-inline');
+    if (!badges) return;
+
+    const visibleBadges = Array.from(badges.children).filter((child) => child.offsetParent !== null);
+    if (visibleBadges.length <= 1) {
+      badges.classList.remove('is-wrapped');
+      return;
+    }
+
+    const firstBadgeTop = visibleBadges[0].offsetTop;
+    const badgesWrapped = visibleBadges.some((child) => Math.abs(child.offsetTop - firstBadgeTop) > 1);
+    badges.classList.toggle('is-wrapped', badgesWrapped);
   }
 
   isEventManagementDialogOpen() {
@@ -952,11 +996,21 @@ class SkylightCalendarCard extends HTMLElement {
         gap: 16px;
         flex-wrap: wrap;
       }
+
+      .header-compact.is-wrapped .compact-header-left,
+      .header-compact.is-wrapped .compact-header-controls {
+        width: 100%;
+        justify-content: center;
+      }
       
       .calendar-badges-inline {
         display: flex;
         gap: 8px;
         flex-wrap: wrap;
+      }
+
+      .calendar-badges-inline.is-wrapped {
+        justify-content: center;
       }
       
       .calendar-badge-inline {
@@ -1015,6 +1069,30 @@ class SkylightCalendarCard extends HTMLElement {
         gap: 12px;
         align-items: center;
         flex-wrap: wrap;
+      }
+
+      .compact-header-controls {
+        justify-content: flex-end;
+      }
+
+      .compact-period-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex: 0 1 auto;
+        margin-left: auto;
+      }
+
+      .compact-period-controls .month-year {
+        min-width: auto;
+      }
+
+      .compact-header-controls.is-wrapped {
+        justify-content: center;
+      }
+
+      .compact-header-controls.is-wrapped .compact-period-controls {
+        margin-left: 0;
       }
       
       .view-mode-buttons {
@@ -2228,9 +2306,25 @@ class SkylightCalendarCard extends HTMLElement {
           flex-direction: column;
           align-items: stretch;
         }
-        
+
         .header-controls {
           justify-content: space-between;
+        }
+
+        .compact-header-controls {
+          justify-content: flex-start;
+        }
+
+        .compact-period-controls {
+          width: 100%;
+          justify-content: space-between;
+          gap: 8px;
+          margin-left: 0;
+        }
+
+        .compact-period-controls .month-year {
+          flex: 1;
+          text-align: center;
         }
         
         .month-year {
@@ -2279,6 +2373,7 @@ class SkylightCalendarCard extends HTMLElement {
     `;
 
     this.attachEventListeners();
+    this.updateCompactHeaderWrapState();
     this.updateWeekStandardFixedOffsetHeightFromDom();
     this.updateMonthContainerTopInViewportFromDom();
   }
@@ -2314,15 +2409,17 @@ class SkylightCalendarCard extends HTMLElement {
         <div class="compact-header-left">
           <h2 class="header-title">${this._config.title}</h2>
           ${this.renderCalendarBadgesInline()}
-          ${canAddEvents ? `<button class="compact-add-event-button" id="add-event-btn"><span class="icon">+</span>${this.t('addEvent')}</button>` : ''}
         </div>
-        <div class="header-controls">
+        <div class="header-controls compact-header-controls">
+          ${canAddEvents ? `<button class="compact-add-event-button" id="add-event-btn"><span class="icon">+</span>${this.t('addEvent')}</button>` : ''}
           ${this.renderThemeToggle()}
           ${this.renderViewModeButtons()}
-          <button class="nav-button" id="prev-period">‹</button>
-          <div class="month-year">${this.getPeriodLabel()}</div>
-          <button class="nav-button" id="next-period">›</button>
-          <button class="today-button" id="today">${this.t('today')}</button>
+          <div class="compact-period-controls">
+            <button class="nav-button" id="prev-period">‹</button>
+            <div class="month-year">${this.getPeriodLabel()}</div>
+            <button class="nav-button" id="next-period">›</button>
+            <button class="today-button" id="today">${this.t('today')}</button>
+          </div>
         </div>
       </div>
     `;
