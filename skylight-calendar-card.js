@@ -470,6 +470,70 @@ class SkylightCalendarCard extends HTMLElement {
     };
   }
 
+  getDashboardScopeKey() {
+    const pathnameSegments = (window.location?.pathname || '').split('/').filter(Boolean);
+    if (pathnameSegments.length > 0) {
+      return pathnameSegments[0];
+    }
+
+    const hashPath = (window.location?.hash || '').replace(/^#/, '');
+    const hashSegments = hashPath.split('/').filter(Boolean);
+    if (hashSegments.length > 0) {
+      return hashSegments[0];
+    }
+
+    return 'default';
+  }
+
+  getPreferenceStorageKey() {
+    const dashboardScope = this.getDashboardScopeKey();
+    const baseKey = this._config.preference_storage_key || (this._config.entities || []).join('|');
+
+    if (!baseKey) {
+      return null;
+    }
+
+    return `skylight-calendar-card:${dashboardScope}:${baseKey}`;
+  }
+
+  loadPersistedPreferences() {
+    const storageKey = this.getPreferenceStorageKey();
+    if (!storageKey) return;
+
+    try {
+      const raw = window.localStorage?.getItem(storageKey);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+
+      if (typeof parsed.isDarkMode === 'boolean') {
+        this._isDarkMode = parsed.isDarkMode;
+      }
+
+      if (Array.isArray(parsed.hiddenCalendars)) {
+        const knownEntities = new Set(this._config.entities || []);
+        this._hiddenCalendars = new Set(parsed.hiddenCalendars.filter((entityId) => knownEntities.has(entityId)));
+      }
+    } catch (error) {
+      console.warn('Failed to load persisted calendar preferences:', error);
+    }
+  }
+
+  persistPreferences() {
+    const storageKey = this.getPreferenceStorageKey();
+    if (!storageKey) return;
+
+    try {
+      const payload = {
+        isDarkMode: this._isDarkMode,
+        hiddenCalendars: Array.from(this._hiddenCalendars)
+      };
+      window.localStorage?.setItem(storageKey, JSON.stringify(payload));
+    } catch (error) {
+      console.warn('Failed to persist calendar preferences:', error);
+    }
+  }
+
   updateCompactHeaderWrapState() {
     if (!this.shadowRoot || !this._config.compact_header) return;
 
@@ -522,6 +586,7 @@ class SkylightCalendarCard extends HTMLElement {
     }
     const language = resolveLanguage(config.language || this._hass?.language || this._hass?.locale?.language);
     this._hasCustomTitle = config.title !== undefined && config.title !== null;
+    const previousHiddenCalendars = new Set(this._hiddenCalendars);
     this._config = {
       title: this._hasCustomTitle ? config.title : translate(language, 'defaultTitle'),
       entities: config.entities,
@@ -550,10 +615,15 @@ class SkylightCalendarCard extends HTMLElement {
       language: config.language || null, // Language code for translations (e.g., 'en', 'de', 'fr')
       locale: config.locale || null, // Locale override for date/time formatting (e.g., 'en-US')
       default_dark_mode: config.default_dark_mode ?? config.dark_mode ?? false, // Start in dark mode on initial load
+      preference_storage_key: config.preference_storage_key || null, // Optional key to isolate saved preferences per card
       ...config
     };
     this._viewMode = this._config.default_view;
     this._isDarkMode = !!this._config.default_dark_mode;
+    this._hiddenCalendars = new Set(
+      Array.from(previousHiddenCalendars).filter((entityId) => this._config.entities.includes(entityId))
+    );
+    this.loadPersistedPreferences();
     this._loadedEventRange = null;
     this.setWeekStart();
     this.render();
@@ -3274,6 +3344,7 @@ class SkylightCalendarCard extends HTMLElement {
         } else {
           this._hiddenCalendars.add(entityId);
         }
+        this.persistPreferences();
         this.render();
       });
     });
@@ -3285,6 +3356,7 @@ class SkylightCalendarCard extends HTMLElement {
 
     themeToggleButton?.addEventListener('click', () => {
       this._isDarkMode = !this._isDarkMode;
+      this.persistPreferences();
       this.render();
     });
     
