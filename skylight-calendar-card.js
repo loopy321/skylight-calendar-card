@@ -610,6 +610,7 @@ class SkylightCalendarCard extends HTMLElement {
       hide_event_calendar_bubble: config.hide_event_calendar_bubble || false, // Hide calendar initial bubble on events
       hide_times_for_calendars: config.hide_times_for_calendars || [], // Hide times in schedule view for specific calendars
       show_current_time_bar: config.show_current_time_bar || false, // Show a "now" indicator in schedule view
+      use_24hr_schedule: config.use_24hr_schedule ?? false, // Use 24-hour time notation in schedule view
       header_color: config.header_color !== undefined ? config.header_color : 'var(--primary-color)', // Custom header background color/gradient
       background_transparent: config.background_transparent || false, // Make calendar surfaces transparent in every view
       background_image_url: config.background_image_url || null, // Optional background image URL for the calendar
@@ -2884,7 +2885,7 @@ class SkylightCalendarCard extends HTMLElement {
           <div class="time-column-extra-spacer"></div>
           ${hours.map(hour => `
             <div class="time-slot" style="height: ${hourHeight}px;">
-              <span class="time-slot-label">${this.formatHour(hour)}</span>
+              <span class="time-slot-label">${this.formatScheduleHour(hour)}</span>
             </div>
           `).join('')}
         </div>
@@ -3084,7 +3085,7 @@ class SkylightCalendarCard extends HTMLElement {
              style="top: ${top}px; height: ${height}px; width: ${width}; left: ${left}; background: ${bgColor}; border-left: 4px solid ${event.color}"
              data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
           <div class="week-standard-event-title">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</div>
-          ${this.shouldShowEventTime(event) ? `<div class="week-standard-event-time">${this.formatTime(eventStart)} - ${this.formatTime(eventEnd)}</div>` : ''}
+          ${this.shouldShowEventTime(event) ? `<div class="week-standard-event-time">${this.formatScheduleTime(eventStart)} - ${this.formatScheduleTime(eventEnd)}</div>` : ''}
           ${this.renderEventIcon(event)}
         </div>
       `;
@@ -3142,11 +3143,17 @@ class SkylightCalendarCard extends HTMLElement {
     return `<div class="current-time-line" style="top: ${top}px;"></div>`;
   }
 
-  formatHour(hour) {
-    if (hour === 0) return '12 AM';
-    if (hour === 12) return '12 PM';
-    if (hour < 12) return `${hour} AM`;
-    return `${hour - 12} PM`;
+  formatScheduleHour(hour) {
+    const date = new Date(2020, 0, 1, hour, 0, 0, 0);
+    return this.formatScheduleTime(date);
+  }
+
+  formatScheduleTime(date) {
+    return new Intl.DateTimeFormat(this.getLocale(), {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: !this._config.use_24hr_schedule
+    }).format(date);
   }
 
   getMonthWeekRowCount() {
