@@ -18,9 +18,11 @@ This card requires one or more **Home Assistant calendar entities** (for example
 
 Install with **HACS** (recommended):
 
-1. Open HACS → **Frontend**
-2. Search for **Skylight Calendar Card**
-3. Download and restart Home Assistant
+1. Open HACS
+2. Click the 3 dots in the top right of the window
+3. Select Custom repository
+4. Search for Repository: https://github.com/superdingo101/skylight-calendar-card, Type: Dashboard
+5. Download and refresh Home Assistant frontend
 
 Or install manually by copying `skylight-calendar-card.js` to `/config/www/` and adding it as a Lovelace resource.
 

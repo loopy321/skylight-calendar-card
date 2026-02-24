@@ -610,6 +610,11 @@ class SkylightCalendarCard extends HTMLElement {
       hide_times_for_calendars: config.hide_times_for_calendars || [], // Hide times in schedule view for specific calendars
       show_current_time_bar: config.show_current_time_bar || false, // Show a "now" indicator in schedule view
       header_color: config.header_color !== undefined ? config.header_color : 'var(--primary-color)', // Custom header background color/gradient
+      background_transparent: config.background_transparent || false, // Make calendar surfaces transparent in every view
+      background_image_url: config.background_image_url || null, // Optional background image URL for the calendar
+      background_image_size: config.background_image_size || 'cover', // CSS background-size for calendar image
+      background_image_position: config.background_image_position || 'center', // CSS background-position for calendar image
+      background_image_repeat: config.background_image_repeat || 'no-repeat', // CSS background-repeat for calendar image
       enable_event_management: config.enable_event_management !== false, // Enable create/edit/delete
       readonly_calendars: config.readonly_calendars || [], // Calendars that should not allow modifications
       language: config.language || null, // Language code for translations (e.g., 'en', 'de', 'fr')
@@ -1130,7 +1135,11 @@ class SkylightCalendarCard extends HTMLElement {
       }
       
       .calendar-container {
-        background: #ffffff;
+        background: var(--calendar-background, #ffffff);
+        background-image: var(--calendar-background-image, none);
+        background-size: var(--calendar-background-size, cover);
+        background-position: var(--calendar-background-position, center);
+        background-repeat: var(--calendar-background-repeat, no-repeat);
         border-radius: 12px;
         overflow: hidden;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
@@ -2468,6 +2477,43 @@ class SkylightCalendarCard extends HTMLElement {
       .calendar-container.dark-mode .event-time {
         color: rgba(255, 255, 255, 0.92);
       }
+
+
+      .calendar-container.custom-background .calendar-grid,
+      .calendar-container.custom-background .week-compact-container,
+      .calendar-container.custom-background .week-standard-container,
+      .calendar-container.custom-background .calendar-badges,
+      .calendar-container.custom-background .day-header,
+      .calendar-container.custom-background .day-cell,
+      .calendar-container.custom-background .week-day-column,
+      .calendar-container.custom-background .week-day-header,
+      .calendar-container.custom-background .week-standard-day-column,
+      .calendar-container.custom-background .week-standard-day-header,
+      .calendar-container.custom-background .all-day-events,
+      .calendar-container.custom-background .day-time-slot,
+      .calendar-container.custom-background .time-slot,
+      .calendar-container.custom-background .time-slot-label,
+      .calendar-container.custom-background .empty-state {
+        background: transparent !important;
+      }
+
+      .calendar-container.custom-background .week-day-header,
+      .calendar-container.custom-background .week-standard-day-header,
+      .calendar-container.custom-background .all-day-events,
+      .calendar-container.custom-background .day-time-slot,
+      .calendar-container.custom-background .calendar-grid,
+      .calendar-container.custom-background .week-compact-container,
+      .calendar-container.custom-background .calendar-badges {
+        border-color: rgba(255, 255, 255, 0.35) !important;
+      }
+
+      .calendar-container.custom-background .day-cell.other-month {
+        background: rgba(255, 255, 255, 0.12) !important;
+      }
+
+      .calendar-container.dark-mode.custom-background .day-cell.other-month {
+        background: rgba(0, 0, 0, 0.2) !important;
+      }
       
       @media (max-width: 768px) {
         .header {
@@ -2519,16 +2565,28 @@ class SkylightCalendarCard extends HTMLElement {
     const year = this._currentDate.getFullYear();
     const month = this._currentDate.getMonth();
 
-    const headerColorStyle = this._config.header_color 
-      ? `--header-background: ${this._config.header_color};` 
+    const headerColorStyle = this._config.header_color
+      ? `--header-background: ${this._config.header_color};`
       : '';
+    const normalizedBackgroundImageUrl = this.normalizeBackgroundImageUrl(this._config.background_image_url);
+    const safeBackgroundImageUrl = normalizedBackgroundImageUrl
+      ? String(normalizedBackgroundImageUrl).replace(/[\'\\]/g, '\\$&')
+      : null;
+    const backgroundImageStyle = safeBackgroundImageUrl
+      ? `--calendar-background-image: url('${safeBackgroundImageUrl}'); --calendar-background-size: ${this._config.background_image_size}; --calendar-background-position: ${this._config.background_image_position}; --calendar-background-repeat: ${this._config.background_image_repeat};`
+      : '';
+    const hasCustomBackground = !!(this._config.background_transparent || this._config.background_image_url);
+    const backgroundStyle = this._config.background_transparent
+      ? '--calendar-background: transparent;'
+      : '';
+    const containerStyle = `${headerColorStyle} ${backgroundStyle} ${backgroundImageStyle}`.trim();
     
     this.shadowRoot.innerHTML = `
       <style>
         ${this.getStyles()}
       </style>
       
-      <div class="calendar-container ${this._isDarkMode ? 'dark-mode' : ''}" style="${headerColorStyle}">
+      <div class="calendar-container ${this._isDarkMode ? 'dark-mode' : ''} ${hasCustomBackground ? 'custom-background' : ''}" style="${containerStyle}">
         ${this._config.compact_header ? this.renderCompactHeader() : this.renderStandardHeader()}
         
         ${this.renderCalendarView()}
@@ -5097,6 +5155,21 @@ class SkylightCalendarCard extends HTMLElement {
     return div.innerHTML;
   }
 
+  normalizeBackgroundImageUrl(url) {
+    if (!url) return null;
+
+    const value = String(url).trim();
+    if (!value) return null;
+
+    const mediaSourcePrefix = 'media-source://media_source/local/';
+    if (value.startsWith(mediaSourcePrefix)) {
+      const localPath = value.slice(mediaSourcePrefix.length);
+      return `/media/local/${localPath}`;
+    }
+
+    return value;
+  }
+
   static getStubConfig() {
     return {
       title: 'Family Calendar',
@@ -5110,6 +5183,8 @@ class SkylightCalendarCard extends HTMLElement {
       hide_event_calendar_bubble: false,
       hide_times_for_calendars: [],
       show_current_time_bar: false,
+      background_transparent: false,
+      background_image_url: null,
       enable_event_management: true
     };
   }
