@@ -1488,6 +1488,7 @@ class SkylightCalendarCard extends HTMLElement {
         padding: 4px 6px;
         border-radius: 4px;
         font-size: var(--event-bubble-font-size, 11px);
+        line-height: 1.2;
         margin-bottom: 3px;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -3315,6 +3316,37 @@ class SkylightCalendarCard extends HTMLElement {
     return Math.ceil((startDay + daysInMonth) / 7);
   }
 
+  getEventBubbleFontSizePx() {
+    const fallbackPx = 11;
+    const sizeValue = this.getEventBubbleFontSize();
+
+    if (typeof window === 'undefined' || !this.shadowRoot) {
+      const parsed = parseFloat(sizeValue);
+      return Number.isFinite(parsed) ? parsed : fallbackPx;
+    }
+
+    const probe = document.createElement('span');
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.style.fontSize = sizeValue;
+    probe.style.lineHeight = 'normal';
+    probe.textContent = 'M';
+    this.shadowRoot.appendChild(probe);
+
+    const computedFontSize = parseFloat(window.getComputedStyle(probe).fontSize);
+    probe.remove();
+
+    return Number.isFinite(computedFontSize) ? computedFontSize : fallbackPx;
+  }
+
+  getMonthEventRowHeight() {
+    const fontSizePx = this.getEventBubbleFontSizePx();
+    const lineHeightPx = fontSizePx * 1.2;
+    const verticalPaddingPx = 8; // .event has 4px top + 4px bottom padding
+    const marginBottomPx = 3; // .event margin-bottom in month view
+    return Math.ceil(lineHeightPx + verticalPaddingPx + marginBottomPx);
+  }
+
   renderDays() {
     const year = this._currentDate.getFullYear();
     const month = this._currentDate.getMonth();
@@ -3411,14 +3443,16 @@ class SkylightCalendarCard extends HTMLElement {
 
     const gridGap = 1;
     const dayHeaderRowHeight = 41;
-    const verticalPadding = 16;
-    const dayNumberHeight = 32;
-    const eventRowHeight = 22;
-    const moreIndicatorHeight = 16;
+    const dayCellVerticalPadding = 16; // .day-cell has 8px top + 8px bottom padding
+    const dayNumberBlockHeight = 22; // number text + margin-bottom in compact month cell
+    const eventRowHeight = this.getMonthEventRowHeight();
 
     const contentHeight = compactMaxHeight - dayHeaderRowHeight - (weekRows * gridGap);
     const dayCellHeight = Math.floor(contentHeight / weekRows);
-    const usableEventHeight = dayCellHeight - verticalPadding - dayNumberHeight - moreIndicatorHeight;
+    // Do not pre-reserve space for the "+N more" indicator here. Overflow handling
+    // swaps one event row for the indicator in renderDay(), so reserving both causes
+    // under-counting and hidden space.
+    const usableEventHeight = dayCellHeight - dayCellVerticalPadding - dayNumberBlockHeight;
     if (!Number.isFinite(usableEventHeight) || usableEventHeight <= 0) {
       return 1;
     }
