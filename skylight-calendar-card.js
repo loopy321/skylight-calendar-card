@@ -626,6 +626,7 @@ class SkylightCalendarCard extends HTMLElement {
       firstDayOfWeek: config.first_day_of_week || 0, // 0 = Sunday
       colors: config.colors || {},
       calendar_names: config.calendar_names || {}, // Map entity IDs to friendly names
+      calendar_badge_icons: config.calendar_badge_icons || {}, // Map entity IDs to badge icon (mdi:*) or photo URL
       maxEvents: Number.isFinite(configuredMaxEvents) && configuredMaxEvents >= 0 ? configuredMaxEvents : 0,
       default_view: config.default_view || 'month', // Default view on load
       week_days: config.week_days || [0, 1, 2, 3, 4, 5, 6], // Which days to show in week view
@@ -1769,6 +1770,18 @@ class SkylightCalendarCard extends HTMLElement {
         color: white;
         font-size: 11px;
         font-weight: 600;
+        overflow: hidden;
+      }
+
+      .calendar-badge-icon ha-icon {
+        --mdc-icon-size: 14px;
+      }
+
+      .calendar-badge-photo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
       }
       
       .calendar-badge-name {
@@ -2850,7 +2863,6 @@ class SkylightCalendarCard extends HTMLElement {
         ${this._config.entities.map((entityId, index) => {
           const name = this.getCalendarName(entityId);
           const color = this._config.colors[entityId] || this.getDefaultColor(index);
-          const initial = name.charAt(0).toUpperCase();
           const isHidden = this._hiddenCalendars.has(entityId);
           
           return `
@@ -2858,7 +2870,7 @@ class SkylightCalendarCard extends HTMLElement {
                  data-entity="${entityId}"
                  style="background: ${isHidden ? '#f3f4f6' : this.lightenColor(color, 0.85)}; 
                         border-color: ${isHidden ? '#d1d5db' : color};">
-              <div class="calendar-badge-icon" style="background: ${isHidden ? '#9ca3af' : color}">${initial}</div>
+              ${this.renderCalendarBadgeIcon(entityId, name, color, isHidden)}
               <span class="calendar-badge-name" style="color: ${isHidden ? '#9ca3af' : '#374151'}">${this.escapeHtml(name)}</span>
             </div>
           `;
@@ -3101,7 +3113,6 @@ class SkylightCalendarCard extends HTMLElement {
           ${this._config.entities.map((entityId, index) => {
             const name = this.getCalendarName(entityId);
             const color = this._config.colors[entityId] || this.getDefaultColor(index);
-            const initial = name.charAt(0).toUpperCase();
             const isHidden = this._hiddenCalendars.has(entityId);
             
             return `
@@ -3110,7 +3121,7 @@ class SkylightCalendarCard extends HTMLElement {
                    style="background: ${isHidden ? '#f3f4f6' : this.lightenColor(color, 0.85)}; 
                           border-color: ${isHidden ? '#d1d5db' : color};
                           cursor: pointer;">
-                <div class="calendar-badge-icon" style="background: ${isHidden ? '#9ca3af' : color}">${initial}</div>
+                ${this.renderCalendarBadgeIcon(entityId, name, color, isHidden)}
                 <span class="calendar-badge-name" style="color: ${isHidden ? '#9ca3af' : '#374151'}">${this.escapeHtml(name)}</span>
               </div>
             `;
@@ -5864,6 +5875,29 @@ class SkylightCalendarCard extends HTMLElement {
     return entity?.attributes?.friendly_name || entityId.split('.')[1];
   }
 
+  getCalendarBadgeIcon(entityId) {
+    const configured = this._config.calendar_badge_icons?.[entityId];
+    if (!configured) return null;
+    return String(configured).trim() || null;
+  }
+
+  renderCalendarBadgeIcon(entityId, name, color, isHidden) {
+    const configuredBadgeIcon = this.getCalendarBadgeIcon(entityId);
+    const iconBackground = isHidden ? '#9ca3af' : color;
+
+    if (configuredBadgeIcon && configuredBadgeIcon.startsWith('mdi:')) {
+      return `<div class="calendar-badge-icon" style="background: ${iconBackground}"><ha-icon icon="${this.escapeHtml(configuredBadgeIcon)}"></ha-icon></div>`;
+    }
+
+    if (configuredBadgeIcon) {
+      const normalizedUrl = this.normalizeBackgroundImageUrl(configuredBadgeIcon) || configuredBadgeIcon;
+      return `<div class="calendar-badge-icon calendar-badge-photo" style="background: ${iconBackground}"><img src="${this.escapeHtml(normalizedUrl)}" alt="${this.escapeHtml(name)}" loading="lazy"></div>`;
+    }
+
+    const initial = name.charAt(0).toUpperCase();
+    return `<div class="calendar-badge-icon" style="background: ${iconBackground}">${this.escapeHtml(initial)}</div>`;
+  }
+
   escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -5900,6 +5934,7 @@ class SkylightCalendarCard extends HTMLElement {
       event_font_colors: {},
       hide_times_for_calendars: [],
       show_current_time_bar: false,
+      calendar_badge_icons: {},
       background_transparent: false,
       background_image_url: null,
       enable_event_management: true
