@@ -618,6 +618,11 @@ class SkylightCalendarCard extends HTMLElement {
     this._hasCustomTitle = config.title !== undefined && config.title !== null;
     const previousHiddenCalendars = new Set(this._hiddenCalendars);
     const configuredMaxEvents = Number(config.max_events);
+    const normalizedDefaultView = config.default_view === 'week'
+      ? 'week-compact'
+      : config.default_view === 'schedule'
+        ? 'week-standard'
+        : config.default_view;
 
     this._config = {
       title: this._hasCustomTitle ? config.title : translate(language, 'defaultTitle'),
@@ -628,7 +633,7 @@ class SkylightCalendarCard extends HTMLElement {
       calendar_names: config.calendar_names || {}, // Map entity IDs to friendly names
       calendar_badge_icons: config.calendar_badge_icons || {}, // Map entity IDs to badge icon (mdi:*) or photo URL
       maxEvents: Number.isFinite(configuredMaxEvents) && configuredMaxEvents >= 0 ? configuredMaxEvents : 0,
-      default_view: config.default_view || 'month', // Default view on load
+      default_view: normalizedDefaultView || 'month', // Default view on load
       week_days: config.week_days || [0, 1, 2, 3, 4, 5, 6], // Which days to show in week view
       rolling_days_week_compact: config.rolling_days_week_compact ?? null, // If set, compact week view shows current day + N days instead of week_days
       rolling_days_schedule: config.rolling_days_schedule ?? null, // If set, schedule week view shows current day + N days instead of week_days
@@ -658,7 +663,8 @@ class SkylightCalendarCard extends HTMLElement {
       locale: config.locale || null, // Locale override for date/time formatting (e.g., 'en-US')
       default_dark_mode: config.default_dark_mode ?? config.dark_mode ?? false, // Start in dark mode on initial load
       preference_storage_key: config.preference_storage_key || null, // Optional key to isolate saved preferences per card
-      ...config
+      ...config,
+      default_view: normalizedDefaultView || 'month' // Re-apply normalization after spread for legacy values
     };
     this._viewMode = this._config.default_view;
     this._isDarkMode = !!this._config.default_dark_mode;
@@ -5929,14 +5935,7 @@ class SkylightCalendarCard extends HTMLElement {
       week_days: [0, 1, 2, 3, 4, 5, 6],
       week_start_hour: 8,
       week_end_hour: 21,
-      hide_event_calendar_bubble: false,
-      event_font_size: 11,
-      event_font_colors: {},
-      hide_times_for_calendars: [],
       show_current_time_bar: false,
-      calendar_badge_icons: {},
-      background_transparent: false,
-      background_image_url: null,
       enable_event_management: true
     };
   }
@@ -5944,9 +5943,259 @@ class SkylightCalendarCard extends HTMLElement {
   getCardSize() {
     return 6;
   }
+
+  static async getConfigElement() {
+    return document.createElement('skylight-calendar-card-editor');
+  }
+}
+
+class SkylightCalendarCardEditor extends HTMLElement {
+  constructor() {
+    super();
+    this._config = SkylightCalendarCard.getStubConfig();
+    this._hass = null;
+    this._rendered = false;
+    this._lastCalendarEntitiesKey = '';
+  }
+
+  setConfig(config) {
+    const normalizedDefaultView = config.default_view === 'week'
+      ? 'week-compact'
+      : config.default_view === 'schedule'
+        ? 'week-standard'
+        : config.default_view;
+
+    this._config = {
+      ...SkylightCalendarCard.getStubConfig(),
+      ...config,
+      default_view: normalizedDefaultView || (SkylightCalendarCard.getStubConfig().default_view || 'month')
+    };
+
+    if (!this._rendered) {
+      this.render();
+      return;
+    }
+
+    this.updateFieldValues();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+
+    if (!this._rendered) {
+      this.render();
+      return;
+    }
+
+    this.refreshCalendarEntities();
+  }
+
+  get value() {
+    return this._config || SkylightCalendarCard.getStubConfig();
+  }
+
+  getCalendarEntities() {
+    return Object.keys(this._hass?.states || {})
+      .filter((entityId) => entityId.startsWith('calendar.'))
+      .sort();
+  }
+
+  render() {
+    const boolOptions = [
+      { key: 'compact_height', label: 'Compact height' },
+      { key: 'compact_header', label: 'Compact header' },
+      { key: 'show_current_time_bar', label: 'Show current time bar' },
+      { key: 'use_24hr_schedule', label: 'Use 24-hour schedule time' },
+      { key: 'combine_calendars', label: 'Combine duplicate events across calendars' },
+      { key: 'enable_event_management', label: 'Enable event management' },
+      { key: 'default_dark_mode', label: 'Default dark mode' }
+    ];
+
+    const boolOptionsMarkup = boolOptions
+      .map(({ key, label }) => `
+        <label><input type="checkbox" data-field="${key}" ${this._config[key] ? 'checked' : ''}> ${label}</label>
+      `)
+      .join('');
+
+    this.innerHTML = `
+      <style>
+        .card-config {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          padding: 8px 0;
+        }
+
+        .field {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .field label {
+          font-weight: 500;
+          color: var(--primary-text-color);
+        }
+
+        .field input,
+        .field select {
+          padding: 8px;
+          border: 1px solid var(--divider-color);
+          border-radius: 6px;
+          font: inherit;
+          color: var(--primary-text-color);
+          background: var(--card-background-color);
+        }
+
+        .entity-list,
+        .boolean-list {
+          display: grid;
+          gap: 4px;
+          border: 1px solid var(--divider-color);
+          border-radius: 6px;
+          padding: 8px;
+          background: var(--card-background-color);
+        }
+
+        .entity-list {
+          max-height: 200px;
+          overflow: auto;
+        }
+
+        .entity-list label,
+        .boolean-list label {
+          font-weight: 400;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .helper {
+          margin: 0;
+          color: var(--secondary-text-color);
+          font-size: 0.85rem;
+        }
+      </style>
+      <div class="card-config">
+        <div class="field">
+          <label for="title">Title</label>
+          <input id="title" data-field="title" type="text" value="${this._config.title || ''}" placeholder="Family Calendar">
+        </div>
+
+        <div class="field">
+          <label for="default_view">Default view</label>
+          <select id="default_view" data-field="default_view">
+            <option value="month" ${this._config.default_view === 'month' ? 'selected' : ''}>Month</option>
+            <option value="week-compact" ${this._config.default_view === 'week-compact' ? 'selected' : ''}>Week</option>
+            <option value="week-standard" ${this._config.default_view === 'week-standard' ? 'selected' : ''}>Schedule</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Calendars</label>
+          <div class="entity-list" id="entity-list"></div>
+          <p class="helper">Select one or more calendar entities to display.</p>
+        </div>
+
+        <div class="field">
+          <label>Boolean options</label>
+          <div class="boolean-list">
+            ${boolOptionsMarkup}
+          </div>
+        </div>
+      </div>
+    `;
+
+    this.refreshCalendarEntities();
+
+    this.querySelectorAll('[data-field]').forEach((input) => {
+      const eventName = input.type === 'text' ? 'input' : 'change';
+      input.addEventListener(eventName, (event) => this.handleChange(event));
+    });
+
+    this._rendered = true;
+  }
+
+  refreshCalendarEntities() {
+    const entityListContainer = this.querySelector('#entity-list');
+    if (!entityListContainer) return;
+
+    const calendarEntities = this.getCalendarEntities();
+    const nextKey = calendarEntities.join('|');
+
+    if (this._lastCalendarEntitiesKey === nextKey && entityListContainer.childElementCount > 0) {
+      const selectedEntities = new Set(this._config.entities || []);
+      entityListContainer.querySelectorAll('input[data-field="entity"]').forEach((checkbox) => {
+        checkbox.checked = selectedEntities.has(checkbox.value);
+      });
+      return;
+    }
+
+    this._lastCalendarEntitiesKey = nextKey;
+    const selectedEntities = new Set(this._config.entities || []);
+
+    if (calendarEntities.length === 0) {
+      entityListContainer.innerHTML = '<p class="helper">No calendar entities found yet.</p>';
+      return;
+    }
+
+    entityListContainer.innerHTML = calendarEntities
+      .map((entityId) => {
+        const friendlyName = this._hass?.states?.[entityId]?.attributes?.friendly_name || entityId;
+        const checked = selectedEntities.has(entityId) ? 'checked' : '';
+        return `<label><input type="checkbox" data-field="entity" value="${entityId}" ${checked}> ${friendlyName}</label>`;
+      })
+      .join('');
+
+    entityListContainer.querySelectorAll('input[data-field="entity"]').forEach((input) => {
+      input.addEventListener('change', (event) => this.handleChange(event));
+    });
+  }
+
+  updateFieldValues() {
+    const titleInput = this.querySelector('input[data-field="title"]');
+    if (titleInput && document.activeElement !== titleInput) {
+      titleInput.value = this._config.title || '';
+    }
+
+    const defaultView = this.querySelector('select[data-field="default_view"]');
+    if (defaultView && document.activeElement !== defaultView) {
+      defaultView.value = this._config.default_view || 'month';
+    }
+
+    this.querySelectorAll('.boolean-list input[type="checkbox"][data-field]').forEach((checkbox) => {
+      checkbox.checked = !!this._config[checkbox.dataset.field];
+    });
+
+    this.refreshCalendarEntities();
+  }
+
+  handleChange(event) {
+    const field = event.target.dataset.field;
+    const nextConfig = { ...this.value };
+
+    if (field === 'entity') {
+      const selected = Array.from(this.querySelectorAll('input[data-field="entity"]:checked')).map((input) => input.value);
+      nextConfig.entities = selected;
+    } else if (event.target.type === 'checkbox') {
+      nextConfig[field] = event.target.checked;
+    } else {
+      nextConfig[field] = event.target.value;
+    }
+
+    this._config = nextConfig;
+    this.dispatchEvent(
+      new CustomEvent('config-changed', {
+        detail: { config: nextConfig },
+        bubbles: true,
+        composed: true
+      })
+    );
+  }
 }
 
 customElements.define('skylight-calendar-card', SkylightCalendarCard);
+customElements.define('skylight-calendar-card-editor', SkylightCalendarCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({

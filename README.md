@@ -40,7 +40,7 @@ This card requires one or more **Home Assistant calendar entities** (for example
 6. Copy and paste this: `/local/skylight-calendar-card.js?v=1`
 7. Click on `JavaScript Module` then `Create`
 8. Go back and refresh your page
-9. You can now click on `Add card` in the bottom right corner, select Manual card, and configure your card via the [quick start guide](https://github.com/superdingo101/skylight-calendar-card?tab=readme-ov-file#quick-start) or the [configuration](https://github.com/superdingo101/skylight-calendar-card/wiki/Configuration) page of the wiki.
+9. You can now click on `Add card` in the bottom right corner, search for `Skylight Calendar Card`, and configure the card directly from the visual editor (or use Manual card with the [quick start guide](https://github.com/superdingo101/skylight-calendar-card?tab=readme-ov-file#quick-start) and the [configuration](https://github.com/superdingo101/skylight-calendar-card/wiki/Configuration) wiki page).
 10. After any update of the file you will have to edit `/local/skylight-calendar-card.js?v=1` and change the version to any higher number
 
 If it's not working, just try to clear your browser cache.
@@ -61,7 +61,7 @@ This method allows you to get updates directly on the HACS main page
 4. Click on the `+` button at the bottom right corner
 5. Now search for `Skylight Calendar Card` and then click on the button at the bottom right corner to download it
 6. Go back on your dashboard and click on the icon at the right top corner then on `Edit dashboard`
-7. You can now click on `Add card` in the bottom right corner, select Manual card, and configure your card via the [quick start guide](https://github.com/superdingo101/skylight-calendar-card?tab=readme-ov-file#quick-start) or the [configuration](https://github.com/superdingo101/skylight-calendar-card/wiki/Configuration) page of the wiki.
+7. You can now click on `Add card` in the bottom right corner, search for `Skylight Calendar Card`, and configure the card directly from the visual editor (or use Manual card with the [quick start guide](https://github.com/superdingo101/skylight-calendar-card?tab=readme-ov-file#quick-start) and the [configuration](https://github.com/superdingo101/skylight-calendar-card/wiki/Configuration) wiki page).
 
 If it's not working, try to clear your browser cache.
 
