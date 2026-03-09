@@ -6281,6 +6281,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
     const { h, s, v, color } = this._colorPickerState;
     const marker = dialog.querySelector('.color-picker-wheel-marker');
     const brightnessInput = dialog.querySelector('#color-picker-brightness');
+    const hexInput = dialog.querySelector('#color-picker-hex');
     const preview = dialog.querySelector('.color-picker-preview');
     const valueText = dialog.querySelector('.color-picker-value');
 
@@ -6295,6 +6296,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
     }
 
     if (brightnessInput) brightnessInput.value = String(Math.round(v * 100));
+    if (hexInput && document.activeElement !== hexInput) hexInput.value = color;
     if (preview) preview.style.background = color;
     if (valueText) valueText.textContent = color;
   }
@@ -6334,6 +6336,13 @@ class SkylightCalendarCardEditor extends HTMLElement {
     this.closeColorPicker();
   }
 
+  normalizeHexColorInput(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const withHash = raw.startsWith('#') ? raw : `#${raw}`;
+    return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toLowerCase() : null;
+  }
+
   renderColorPickerDialog() {
     return `
       <div class="color-picker-dialog">
@@ -6347,8 +6356,12 @@ class SkylightCalendarCardEditor extends HTMLElement {
             <label for="color-picker-brightness">Color brightness</label>
             <input id="color-picker-brightness" type="range" min="5" max="100" step="1">
           </div>
+          <div class="color-picker-controls">
+            <label for="color-picker-hex">Hex color</label>
+            <input id="color-picker-hex" type="text" placeholder="#3f51b5">
+          </div>
           <div class="color-picker-presets">
-            ${['#ff0000', '#00d9ff', '#0018ff', '#00ff1e', '#ff00e1', '#ffe600', '#000000', '#6a79d8']
+            ${['#ffffff', '#ff0000', '#ffff00', '#00ff00', '#000000', '#00ffff', '#0000ff', '#ff00ff']
               .map((color) => `<button type="button" class="color-preset" data-color-preset="${color}" style="background:${color}"></button>`)
               .join('')}
           </div>
@@ -6441,6 +6454,15 @@ class SkylightCalendarCardEditor extends HTMLElement {
     `;
   }
 
+  renderSubSection(title, content) {
+    return `
+      <details class="config-subsection">
+        <summary>${title}</summary>
+        <div class="subsection-content">${content}</div>
+      </details>
+    `;
+  }
+
   renderWeekdayCheckboxes() {
     const selectedWeekdays = new Set(this.getListFieldValue('week_days'));
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -6459,54 +6481,64 @@ class SkylightCalendarCardEditor extends HTMLElement {
 
   render() {
     const displayLayoutSection = this.renderSection('Display & layout', `
-      <div class="field">
-        <label for="first_day_of_week">First day of week</label>
-        <select id="first_day_of_week" data-field="first_day_of_week" data-type="number">
-          <option value="0" ${Number(this._config.first_day_of_week) === 0 ? 'selected' : ''}>Sunday</option>
-          <option value="1" ${Number(this._config.first_day_of_week) === 1 ? 'selected' : ''}>Monday</option>
-          <option value="2" ${Number(this._config.first_day_of_week) === 2 ? 'selected' : ''}>Tuesday</option>
-          <option value="3" ${Number(this._config.first_day_of_week) === 3 ? 'selected' : ''}>Wednesday</option>
-          <option value="4" ${Number(this._config.first_day_of_week) === 4 ? 'selected' : ''}>Thursday</option>
-          <option value="5" ${Number(this._config.first_day_of_week) === 5 ? 'selected' : ''}>Friday</option>
-          <option value="6" ${Number(this._config.first_day_of_week) === 6 ? 'selected' : ''}>Saturday</option>
-        </select>
+      <div class="field-row">
+        <div class="field field-inline">
+          <label for="first_day_of_week">First day of week</label>
+          <select id="first_day_of_week" data-field="first_day_of_week" data-type="number">
+            <option value="0" ${Number(this._config.first_day_of_week) === 0 ? 'selected' : ''}>Sunday</option>
+            <option value="1" ${Number(this._config.first_day_of_week) === 1 ? 'selected' : ''}>Monday</option>
+            <option value="2" ${Number(this._config.first_day_of_week) === 2 ? 'selected' : ''}>Tuesday</option>
+            <option value="3" ${Number(this._config.first_day_of_week) === 3 ? 'selected' : ''}>Wednesday</option>
+            <option value="4" ${Number(this._config.first_day_of_week) === 4 ? 'selected' : ''}>Thursday</option>
+            <option value="5" ${Number(this._config.first_day_of_week) === 5 ? 'selected' : ''}>Friday</option>
+            <option value="6" ${Number(this._config.first_day_of_week) === 6 ? 'selected' : ''}>Saturday</option>
+          </select>
+        </div>
       </div>
       <div class="field">
         <label>Week days</label>
         ${this.renderWeekdayCheckboxes()}
       </div>
       <div class="field-row">
-        <div class="field">
+        <div class="field field-inline">
           <label for="week_start_hour">Week start hour</label>
           <input id="week_start_hour" data-field="week_start_hour" data-type="number" type="number" min="0" max="23" value="${Number(this._config.week_start_hour ?? this.getEditorDefaultValue('week_start_hour'))}">
         </div>
-        <div class="field">
+      </div>
+      <div class="field-row">
+        <div class="field field-inline">
           <label for="week_end_hour">Week end hour</label>
           <input id="week_end_hour" data-field="week_end_hour" data-type="number" type="number" min="1" max="24" value="${Number(this._config.week_end_hour ?? this.getEditorDefaultValue('week_end_hour'))}">
         </div>
       </div>
       <div class="field-row">
-        <div class="field">
+        <div class="field field-inline">
           <label for="rolling_days_week_compact">Rolling days (week view)</label>
           <input id="rolling_days_week_compact" data-field="rolling_days_week_compact" data-type="nullable-number" type="number" min="1" value="${this._config.rolling_days_week_compact ?? ''}" placeholder="Disabled">
         </div>
-        <div class="field">
+      </div>
+      <div class="field-row">
+        <div class="field field-inline">
           <label for="rolling_days_schedule">Rolling days (schedule view)</label>
           <input id="rolling_days_schedule" data-field="rolling_days_schedule" data-type="nullable-number" type="number" min="1" value="${this._config.rolling_days_schedule ?? ''}" placeholder="Disabled">
         </div>
       </div>
-      <div class="field">
-        <label for="rolling_weeks">Rolling weeks (month view)</label>
-        <input id="rolling_weeks" data-field="rolling_weeks" data-type="nullable-number" type="number" min="1" value="${this._config.rolling_weeks ?? ''}" placeholder="Disabled">
+      <div class="field-row">
+        <div class="field field-inline">
+          <label for="rolling_weeks">Rolling weeks (month view)</label>
+          <input id="rolling_weeks" data-field="rolling_weeks" data-type="nullable-number" type="number" min="1" value="${this._config.rolling_weeks ?? ''}" placeholder="Disabled">
+        </div>
       </div>
       <div class="boolean-list">
         <label><input type="checkbox" data-field="compact_height" ${this._config.compact_height ? 'checked' : ''}> Compact height</label>
         <label><input type="checkbox" data-field="compact_header" ${this._config.compact_header ? 'checked' : ''}> Compact header</label>
       </div>
-      <div class="field">
-        <label for="height_scale">Height scale</label>
-        <input id="height_scale" data-field="height_scale" data-type="number" type="number" min="0.1" step="0.1" value="${Number(this._config.height_scale ?? this.getEditorDefaultValue('height_scale'))}">
-      </div>
+      ${this._config.compact_height ? '' : `
+        <div class="field">
+          <label for="height_scale">Height scale</label>
+          <input id="height_scale" data-field="height_scale" data-type="number" type="number" min="0.1" step="0.1" value="${Number(this._config.height_scale ?? this.getEditorDefaultValue('height_scale'))}">
+        </div>
+      `}
     `);
 
     const colorStylingSection = this.renderSection('Colors & styling', `
@@ -6517,22 +6549,10 @@ class SkylightCalendarCardEditor extends HTMLElement {
           <input data-field="header_color_text" data-type="color-text" type="text" value="${this.escapeHtml(this._config.header_color || '')}" placeholder="var(--primary-color)">
         </div>
       </div>
-      <div class="field">
-        <label>Calendar colors</label>
-        <div class="map-grid">${this.renderMapRowInputs('colors', { label: 'calendar colors', inputType: 'color' })}</div>
-      </div>
-      <div class="field">
-        <label>Event font colors</label>
-        <div class="map-grid">${this.renderMapRowInputs('event_font_colors', { label: 'event font colors', inputType: 'color' })}</div>
-      </div>
-      <div class="field">
-        <label>Calendar display names</label>
-        <div class="map-grid">${this.renderMapRowInputs('calendar_names', { label: 'calendar names', placeholder: 'Display name' })}</div>
-      </div>
-      <div class="field">
-        <label>Calendar badge icons</label>
-        <div class="map-grid">${this.renderMapRowInputs('calendar_badge_icons', { label: 'badge icons', placeholder: 'mdi:icon or URL' })}</div>
-      </div>
+      ${this.renderSubSection('Calendar colors', `<div class="map-grid">${this.renderMapRowInputs('colors', { label: 'calendar colors', inputType: 'color' })}</div>`)}
+      ${this.renderSubSection('Event font colors', `<div class="map-grid">${this.renderMapRowInputs('event_font_colors', { label: 'event font colors', inputType: 'color' })}</div>`)}
+      ${this.renderSubSection('Calendar display names', `<div class="map-grid">${this.renderMapRowInputs('calendar_names', { label: 'calendar names', placeholder: 'Display name' })}</div>`)}
+      ${this.renderSubSection('Calendar badge icons', `<div class="map-grid">${this.renderMapRowInputs('calendar_badge_icons', { label: 'badge icons', placeholder: 'mdi:icon or URL' })}</div>`)}
       <div class="boolean-list">
         <label><input type="checkbox" data-field="background_transparent" ${this._config.background_transparent ? 'checked' : ''}> Transparent background surfaces</label>
         <label><input type="checkbox" data-field="default_dark_mode" ${this._config.default_dark_mode ? 'checked' : ''}> Default dark mode</label>
@@ -6540,21 +6560,23 @@ class SkylightCalendarCardEditor extends HTMLElement {
     `);
 
     const backgroundSection = this.renderSection('Background image', `
-      <div class="field">
+      <div class="field field-inline">
         <label for="background_image_url">Background image URL</label>
         <input id="background_image_url" data-field="background_image_url" type="text" value="${this._config.background_image_url || ''}" placeholder="https://... or /media/local/...">
       </div>
       <div class="field-row">
-        <div class="field">
+        <div class="field field-inline">
           <label for="background_image_size">Image size</label>
           <input id="background_image_size" data-field="background_image_size" type="text" value="${this._config.background_image_size || 'cover'}" placeholder="cover">
         </div>
-        <div class="field">
+      </div>
+      <div class="field-row">
+        <div class="field field-inline">
           <label for="background_image_position">Image position</label>
           <input id="background_image_position" data-field="background_image_position" type="text" value="${this._config.background_image_position || 'center'}" placeholder="center">
         </div>
       </div>
-      <div class="field">
+      <div class="field field-inline">
         <label for="background_image_repeat">Image repeat</label>
         <input id="background_image_repeat" data-field="background_image_repeat" type="text" value="${this._config.background_image_repeat || 'no-repeat'}" placeholder="no-repeat">
       </div>
@@ -6562,19 +6584,18 @@ class SkylightCalendarCardEditor extends HTMLElement {
 
     const eventSection = this.renderSection('Events & schedule', `
       <div class="field-row">
-        <div class="field">
+        <div class="field field-inline">
           <label for="max_events">Max events (0 = unlimited)</label>
           <input id="max_events" data-field="max_events" data-type="number" type="number" min="0" value="${Number(this._config.max_events ?? this._config.maxEvents ?? this.getEditorDefaultValue('max_events'))}">
         </div>
-        <div class="field">
+      </div>
+      <div class="field-row">
+        <div class="field field-inline">
           <label for="event_font_size">Event font size</label>
           <input id="event_font_size" data-field="event_font_size" data-type="number" type="number" min="8" max="32" value="${Number(this._config.event_font_size ?? this.getEditorDefaultValue('event_font_size'))}">
         </div>
       </div>
-      <div class="field">
-        <label>Hide times for calendars</label>
-        <div class="list-checkbox-grid">${this.renderCalendarListCheckboxes('hide_times_for_calendars', { label: 'hidden times calendars' })}</div>
-      </div>
+      ${this.renderSubSection('Hide times for calendars', `<div class="list-checkbox-grid">${this.renderCalendarListCheckboxes('hide_times_for_calendars', { label: 'hidden times calendars' })}</div>`)}
       <div class="boolean-list">
         <label><input type="checkbox" data-field="show_current_time_bar" ${this._config.show_current_time_bar ? 'checked' : ''}> Show current time bar</label>
         <label><input type="checkbox" data-field="use_24hr_schedule" ${this._config.use_24hr_schedule ? 'checked' : ''}> Use 24-hour schedule time</label>
@@ -6591,24 +6612,23 @@ class SkylightCalendarCardEditor extends HTMLElement {
       <div class="boolean-list">
         <label><input type="checkbox" data-field="enable_event_management" ${this._config.enable_event_management !== false ? 'checked' : ''}> Enable event management</label>
       </div>
-      <div class="field">
-        <label>Read-only calendars</label>
-        <div class="list-checkbox-grid">${this.renderCalendarListCheckboxes('readonly_calendars', { label: 'read-only calendars' })}</div>
-      </div>
+      ${this.renderSubSection('Read-only calendars', `<div class="list-checkbox-grid">${this.renderCalendarListCheckboxes('readonly_calendars', { label: 'read-only calendars' })}</div>`)}
     `);
 
     const localeSection = this.renderSection('Localization & preferences', `
       <div class="field-row">
-        <div class="field">
+        <div class="field field-inline">
           <label for="language">Language code</label>
           <input id="language" data-field="language" type="text" value="${this._config.language || ''}" placeholder="en, fr, de...">
         </div>
-        <div class="field">
+      </div>
+      <div class="field-row">
+        <div class="field field-inline">
           <label for="locale">Locale override</label>
           <input id="locale" data-field="locale" type="text" value="${this._config.locale || ''}" placeholder="en-US">
         </div>
       </div>
-      <div class="field">
+      <div class="field field-inline">
         <label for="preference_storage_key">Preference storage key</label>
         <input id="preference_storage_key" data-field="preference_storage_key" type="text" value="${this._config.preference_storage_key || ''}" placeholder="Optional custom key">
       </div>
@@ -6627,6 +6647,13 @@ class SkylightCalendarCardEditor extends HTMLElement {
           display: flex;
           flex-direction: column;
           gap: 4px;
+        }
+
+        .field.field-inline {
+          display: grid;
+          grid-template-columns: minmax(180px, 260px) 1fr;
+          align-items: center;
+          gap: 8px;
         }
 
         .field-row {
@@ -6787,6 +6814,15 @@ class SkylightCalendarCardEditor extends HTMLElement {
           gap: 6px;
         }
 
+        .color-picker-controls input[type="text"] {
+          padding: 8px;
+          border: 1px solid var(--divider-color);
+          border-radius: 6px;
+          font: inherit;
+          color: var(--primary-text-color);
+          background: var(--card-background-color);
+        }
+
         .color-picker-presets {
           display: grid;
           grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -6858,6 +6894,24 @@ class SkylightCalendarCardEditor extends HTMLElement {
           padding: 10px;
           font-weight: 600;
           list-style: none;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .config-section summary::before,
+        .config-subsection summary::before {
+          content: '›';
+          font-size: 1.2rem;
+          line-height: 1;
+          transform: rotate(0deg);
+          transition: transform 120ms ease;
+          color: var(--secondary-text-color);
+        }
+
+        .config-section[open] > summary::before,
+        .config-subsection[open] > summary::before {
+          transform: rotate(90deg);
         }
 
         .config-section summary::-webkit-details-marker {
@@ -6870,6 +6924,31 @@ class SkylightCalendarCardEditor extends HTMLElement {
           display: flex;
           flex-direction: column;
           gap: 10px;
+        }
+
+        .config-subsection {
+          border: 1px solid var(--divider-color);
+          border-radius: 6px;
+          background: var(--card-background-color);
+        }
+
+        .config-subsection summary {
+          cursor: pointer;
+          padding: 8px 10px;
+          font-weight: 600;
+          list-style: none;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .config-subsection summary::-webkit-details-marker {
+          display: none;
+        }
+
+        .subsection-content {
+          border-top: 1px solid var(--divider-color);
+          padding: 10px;
         }
 
         .entity-list,
@@ -6902,7 +6981,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
         }
       </style>
       <div class="card-config">
-        <div class="field">
+        <div class="field field-inline">
           <label for="title">Title</label>
           <input id="title" data-field="title" type="text" value="${this._config.title || ''}" placeholder="Family Calendar">
         </div>
@@ -6992,6 +7071,22 @@ class SkylightCalendarCardEditor extends HTMLElement {
         this._colorPickerState.color = this.hsvToHex(this._colorPickerState.h, this._colorPickerState.s, this._colorPickerState.v);
         this.syncColorPickerUi();
       });
+    }
+
+    const hexInput = this.querySelector('#color-picker-hex');
+    if (hexInput) {
+      const syncHexColor = () => {
+        const normalizedHex = this.normalizeHexColorInput(hexInput.value);
+        if (!normalizedHex) return;
+        const hsv = this.hexToHsv(normalizedHex);
+        this._colorPickerState.h = hsv.h;
+        this._colorPickerState.s = hsv.s;
+        this._colorPickerState.v = hsv.v;
+        this._colorPickerState.color = normalizedHex;
+        this.syncColorPickerUi();
+      };
+      hexInput.addEventListener('input', syncHexColor);
+      hexInput.addEventListener('change', syncHexColor);
     }
 
     const applyBtn = this.querySelector('#apply-color-picker');
@@ -7155,6 +7250,18 @@ class SkylightCalendarCardEditor extends HTMLElement {
       nextConfig.week_days = selectedWeekdays;
     } else if (event.target.type === 'checkbox') {
       nextConfig[field] = event.target.checked;
+      if (field === 'compact_height') {
+        this._config = nextConfig;
+        this.render();
+        this.dispatchEvent(
+          new CustomEvent('config-changed', {
+            detail: { config: nextConfig },
+            bubbles: true,
+            composed: true
+          })
+        );
+        return;
+      }
     } else if (event.target.dataset.type === 'color') {
       nextConfig[field] = event.target.value;
     } else if (event.target.dataset.type === 'color-text') {
