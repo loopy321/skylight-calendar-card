@@ -3577,10 +3577,14 @@ class SkylightCalendarCard extends HTMLElement {
       : [event.entityId];
 
     const preferredEntityId = visibleEntityIds[0] || event.entityId;
-    if (!preferredEntityId) return 'white';
+    const configuredColor = preferredEntityId
+      ? this.normalizeSingleColor(this._config?.event_font_colors?.[preferredEntityId])
+      : null;
+    if (configuredColor) {
+      return configuredColor;
+    }
 
-    const configuredColor = this.normalizeSingleColor(this._config?.event_font_colors?.[preferredEntityId]);
-    return configuredColor || 'white';
+    return this.getContractColor(this.getEventBackgroundColor(event));
   }
 
   shouldShowEventTime(event) {
@@ -3969,6 +3973,25 @@ class SkylightCalendarCard extends HTMLElement {
     if (option === 'primary') return primaryColor;
     if (option === 'neutral') return '#F8F3E9';
     return option;
+  }
+
+  getEventBackgroundColor(event) {
+    const visibleColors = this.getVisibleCalendarColorsForEvent(event);
+    const primaryColor = visibleColors[0] || event?.color || '#3b82f6';
+
+    if (visibleColors.length <= 1) {
+      return primaryColor;
+    }
+
+    return this.getCombinedBackgroundColor(visibleColors, primaryColor);
+  }
+
+  getContractColor(backgroundColor) {
+    const rgb = this.colorToRgb(backgroundColor);
+    if (!rgb) return 'white';
+
+    const luminance = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
+    return luminance > 0.6 ? 'black' : 'white';
   }
 
   getIndicatorColors(visibleColors, combineStyle, combineBackgroundOption) {
