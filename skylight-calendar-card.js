@@ -485,6 +485,7 @@ class SkylightCalendarCard extends HTMLElement {
     this._lastFetch = null;
     this._loadedEventRange = null;
     this._calendarDataSignatures = {}; // Track per-calendar data for change detection
+    this._lastUnchangedDataRender = null; // Throttle unchanged-data UI refreshes
     this._hiddenCalendars = new Set(); // Track which calendars are hidden
     this._calendarCapabilities = {}; // Track calendar capabilities
     this._activeLanguage = DEFAULT_LANGUAGE;
@@ -711,6 +712,7 @@ class SkylightCalendarCard extends HTMLElement {
     this.loadPersistedPreferences();
     this._loadedEventRange = null;
     this._calendarDataSignatures = {};
+    this._lastUnchangedDataRender = null;
     this.setWeekStart();
     this.render();
     this._activeLanguage = language;
@@ -995,7 +997,16 @@ class SkylightCalendarCard extends HTMLElement {
 
       if (changedCalendars.length === 0) {
         this._loadedEventRange = { startDate, endDate };
-        this.render();
+
+        const now = Date.now();
+        const shouldRenderForUnchangedData = !this._lastUnchangedDataRender ||
+          (now - this._lastUnchangedDataRender >= 15 * 60 * 1000);
+
+        if (shouldRenderForUnchangedData) {
+          this._lastUnchangedDataRender = now;
+          this.render();
+        }
+
         return;
       }
 
@@ -1009,6 +1020,7 @@ class SkylightCalendarCard extends HTMLElement {
 
       this._events = this.limitEvents(mergedEvents);
       this._loadedEventRange = { startDate, endDate };
+      this._lastUnchangedDataRender = Date.now();
       this.render();
     } finally {
       this._fetching = false;
