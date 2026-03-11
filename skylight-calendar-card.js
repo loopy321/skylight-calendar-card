@@ -694,7 +694,9 @@ class SkylightCalendarCard extends HTMLElement {
       background_image_position: config.background_image_position || 'center', // CSS background-position for calendar image
       background_image_repeat: config.background_image_repeat || 'no-repeat', // CSS background-repeat for calendar image
       combine_calendars: config.combine_calendars ?? false, // Combine exact duplicate events across calendars with zebra striping
-      combine_calendars_width: config.combine_calendars_width ?? 12, // Stripe width in pixels for combined calendar zebra styling
+      combine_style: this.normalizeCombineStyle(config.combine_style ?? 'bars'), // Visual treatment for merged calendar events
+      combine_background: this.normalizeCombineBackground(config.combine_background ?? 'primary'), // Background for merged events: neutral, primary, or hex
+      combine_calendars_width: config.combine_calendars_width ?? 18, // Stripe width in pixels for combined calendar zebra styling
       enable_event_management: config.enable_event_management !== false, // Enable create/edit/delete
       readonly_calendars: config.readonly_calendars || [], // Calendars that should not allow modifications
       language: config.language || null, // Language code for translations (e.g., 'en', 'de', 'fr')
@@ -839,6 +841,24 @@ class SkylightCalendarCard extends HTMLElement {
 
     const clamped = Math.max(0, Math.min(1, alpha));
     return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${clamped})`;
+  }
+
+  normalizeCombineStyle(styleValue) {
+    const normalized = String(styleValue || '').trim().toLowerCase();
+    return ['stripes', 'bars', 'dots'].includes(normalized) ? normalized : 'bars';
+  }
+
+  normalizeCombineBackground(backgroundValue) {
+    const normalized = String(backgroundValue || '').trim();
+    if (!normalized) return 'primary';
+
+    const lower = normalized.toLowerCase();
+    if (lower === 'neutral' || lower === 'primary') {
+      return lower;
+    }
+
+    const hex = this.colorToHex(normalized);
+    return hex || 'primary';
   }
 
   getWritableCalendars() {
@@ -1722,7 +1742,7 @@ class SkylightCalendarCard extends HTMLElement {
         display: block;
         width: 100%;
         max-width: 100%;
-        padding: 4px 6px;
+        padding: 4px 6px 4px calc(6px + var(--combine-left-offset, 0px));
         border-radius: 4px;
         font-size: var(--event-bubble-font-size, 11px);
         line-height: 1.2;
@@ -1815,7 +1835,7 @@ class SkylightCalendarCard extends HTMLElement {
         background: #3b82f6;
         color: var(--event-bubble-text-color, white);
         font-size: var(--event-bubble-font-size, 11px);
-        padding: 8px 10px;
+        padding: 8px 10px 8px calc(10px + var(--combine-left-offset, 0px));
         border-radius: 6px;
         margin-bottom: 8px;
         cursor: pointer;
@@ -2092,7 +2112,7 @@ class SkylightCalendarCard extends HTMLElement {
       }
       
       .all-day-event {
-        padding: 4px 8px;
+        padding: 4px 8px 4px calc(8px + var(--combine-left-offset, 0px));
         color: var(--event-bubble-text-color, white);
         border-radius: 6px;
         cursor: pointer;
@@ -2136,7 +2156,7 @@ class SkylightCalendarCard extends HTMLElement {
         left: 8px;
         right: 8px;
         color: var(--event-bubble-text-color, white);
-        padding: 4px 8px;
+        padding: 4px 8px 4px calc(8px + var(--combine-left-offset, 0px));
         border-radius: 8px;
         font-size: var(--event-bubble-font-size, 11px);
         overflow: hidden;
@@ -3922,6 +3942,42 @@ class SkylightCalendarCard extends HTMLElement {
     return `repeating-linear-gradient(135deg, ${cycle})`;
   }
 
+  createVerticalBarsGradient(colors) {
+    const segments = colors.map((color, index) => {
+      const start = (index / colors.length) * 100;
+      const end = ((index + 1) / colors.length) * 100;
+      return `${color} ${start}% ${end}%`;
+    }).join(', ');
+    return `linear-gradient(to bottom, ${segments})`;
+  }
+
+  createDotsDecoration(colors, indicatorWidth) {
+    const safeWidth = Math.max(1, indicatorWidth);
+    const dotRadius = Math.max(2, Math.floor(safeWidth * 0.3));
+    const x = safeWidth / 2;
+    return colors
+      .map((color, index) => {
+        const y = (safeWidth / 2) + (index * safeWidth);
+        return `radial-gradient(circle at ${x}px ${y}px, ${color} 0 ${dotRadius}px, transparent ${dotRadius + 1}px)`;
+      })
+      .join(', ');
+  }
+
+  getCombinedBackgroundColor(visibleColors, fallbackColor) {
+    const primaryColor = visibleColors[0] || fallbackColor;
+    const option = this.normalizeCombineBackground(this._config?.combine_background);
+    if (option === 'primary') return primaryColor;
+    if (option === 'neutral') return '#F8F3E9';
+    return option;
+  }
+
+  getIndicatorColors(visibleColors, combineStyle, combineBackgroundOption) {
+    if ((combineStyle === 'bars' || combineStyle === 'dots') && combineBackgroundOption === 'primary') {
+      return visibleColors.slice(1);
+    }
+    return visibleColors;
+  }
+
   getEventStyle(event, { withBorderAccent = false } = {}) {
     const visibleColors = this.getVisibleCalendarColorsForEvent(event);
     const primaryColor = visibleColors[0] || event.color;
@@ -3935,8 +3991,28 @@ class SkylightCalendarCard extends HTMLElement {
       return `background-color: ${primaryColor}; background-image: none; background-clip: padding-box; ${borderStyle}`;
     }
 
+    const combineStyle = this.normalizeCombineStyle(this._config?.combine_style);
+    const combineBackgroundOption = this.normalizeCombineBackground(this._config?.combine_background);
+    const backgroundColor = this.getCombinedBackgroundColor(visibleColors, primaryColor);
+    const indicatorWidth = Number(this._config?.combine_calendars_width) > 0
+      ? Number(this._config.combine_calendars_width)
+      : 12;
+    const indicatorColors = this.getIndicatorColors(visibleColors, combineStyle, combineBackgroundOption);
+
+    if (combineStyle === 'bars') {
+      const barsGradient = indicatorColors.length > 0 ? this.createVerticalBarsGradient(indicatorColors) : 'none';
+      const leftOffset = indicatorColors.length > 0 ? `--combine-left-offset: ${indicatorWidth}px;` : '--combine-left-offset: 0px;';
+      return `${leftOffset} background-color: ${backgroundColor}; background-image: ${barsGradient}; background-size: ${indicatorWidth}px 100%; background-position: left top; background-repeat: no-repeat; background-clip: padding-box; ${borderStyle}`;
+    }
+
+    if (combineStyle === 'dots') {
+      const dots = indicatorColors.length > 0 ? this.createDotsDecoration(indicatorColors, indicatorWidth) : 'none';
+      const leftOffset = indicatorColors.length > 0 ? `--combine-left-offset: ${indicatorWidth}px;` : '--combine-left-offset: 0px;';
+      return `${leftOffset} background-color: ${backgroundColor}; background-image: ${dots}; background-repeat: no-repeat; background-clip: padding-box; ${borderStyle}`;
+    }
+
     const stripeGradient = this.createZebraStripeGradient(visibleColors);
-    return `background-color: ${primaryColor}; background-image: ${stripeGradient}; background-clip: padding-box; ${borderStyle}`;
+    return `--combine-left-offset: 0px; background-color: ${backgroundColor}; background-image: ${stripeGradient}; background-clip: padding-box; ${borderStyle}`;
   }
 
   getEventDateTimeInfo(event) {
@@ -6130,6 +6206,8 @@ class SkylightCalendarCard extends HTMLElement {
       week_start_hour: 8,
       week_end_hour: 21,
       show_current_time_bar: false,
+      combine_style: 'bars',
+      combine_background: 'primary',
       enable_event_management: true
     };
   }
@@ -6246,7 +6324,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
       height_scale: 1,
       event_font_size: 11,
       event_time_font_size: 9,
-      combine_calendars_width: 12,
+      combine_calendars_width: 18,
       max_events: 0,
       first_day_of_week: 0
     };
@@ -6697,7 +6775,19 @@ class SkylightCalendarCardEditor extends HTMLElement {
         <label><input type="checkbox" data-field="combine_calendars" ${this._config.combine_calendars ? 'checked' : ''}> Combine duplicate events across calendars</label>
       </div>
       <div class="field">
-        <label for="combine_calendars_width">Combined stripe width (px)</label>
+        <label for="combine_style">Combined indicator style</label>
+        <select id="combine_style" data-field="combine_style">
+          <option value="stripes" ${this._config.combine_style === 'stripes' ? 'selected' : ''}>Stripes</option>
+          <option value="bars" ${this._config.combine_style === 'bars' || !this._config.combine_style ? 'selected' : ''}>Bars</option>
+          <option value="dots" ${this._config.combine_style === 'dots' ? 'selected' : ''}>Dots</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="combine_background">Combined background (neutral, primary, or #RRGGBB)</label>
+        <input id="combine_background" data-field="combine_background" type="text" value="${this._config.combine_background || 'primary'}" placeholder="primary">
+      </div>
+      <div class="field">
+        <label for="combine_calendars_width">Combined indicator width (px)</label>
         <input id="combine_calendars_width" data-field="combine_calendars_width" data-type="number" type="number" min="1" value="${Number(this._config.combine_calendars_width ?? this.getEditorDefaultValue('combine_calendars_width'))}">
       </div>
     `);
@@ -7258,7 +7348,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
       checkbox.checked = this.getListFieldValue(listField).includes(checkbox.value);
     });
 
-    this.querySelectorAll('input[data-type="number"], input[data-type="nullable-number"], input[data-type="list"], input[data-field="language"], input[data-field="locale"], input[data-field="preference_storage_key"], input[data-field="background_image_url"], input[data-field="background_image_size"], input[data-field="background_image_position"], input[data-field="background_image_repeat"]').forEach((input) => {
+    this.querySelectorAll('input[data-type="number"], input[data-type="nullable-number"], input[data-type="list"], input[data-field="language"], input[data-field="locale"], input[data-field="preference_storage_key"], input[data-field="background_image_url"], input[data-field="background_image_size"], input[data-field="background_image_position"], input[data-field="background_image_repeat"], input[data-field="combine_background"]').forEach((input) => {
       if (document.activeElement === input) return;
       const field = input.dataset.field;
       const type = input.dataset.type;
@@ -7271,6 +7361,14 @@ class SkylightCalendarCardEditor extends HTMLElement {
     this.querySelectorAll('input[type="checkbox"][data-weekday]').forEach((checkbox) => {
       const weekday = Number(checkbox.dataset.weekday);
       checkbox.checked = this.getListFieldValue('week_days').includes(weekday);
+    });
+
+    this.querySelectorAll('select[data-field]').forEach((select) => {
+      if (document.activeElement === select) return;
+      const field = select.dataset.field;
+      if (field === 'default_view') return;
+      if (field === 'first_day_of_week') return;
+      select.value = this._config[field] || '';
     });
 
     const headerColorTextInput = this.querySelector('input[data-field="header_color_text"]');
