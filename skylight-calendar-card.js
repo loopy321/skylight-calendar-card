@@ -682,6 +682,7 @@ class SkylightCalendarCard extends HTMLElement {
       compact_header: config.compact_header || false, // Compact header layout
       hide_calendars: config.hide_calendars || false, // Hide calendar badges from header area
       hide_controls: config.hide_controls || false, // Hide header controls (add/view/theme/navigation)
+      hide_dark_mode_toggle: config.hide_dark_mode_toggle || false, // Hide dark mode toggle from header controls
       hide_event_calendar_bubble: config.hide_event_calendar_bubble || false, // Hide calendar initial bubble on events
       event_font_size: config.event_font_size ?? 11, // Font size for event bubble text in every view
       event_time_font_size: config.event_time_font_size ?? 9, // Font size for event time text in every view
@@ -3111,6 +3112,7 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   renderThemeToggle() {
+    if (this._config.hide_dark_mode_toggle) return '';
     return `<button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">${this._isDarkMode ? '☀︎' : '☾'}</button>`;
   }
 
@@ -6280,6 +6282,7 @@ class SkylightCalendarCard extends HTMLElement {
       combine_background: 'primary',
       hide_calendars: false,
       hide_controls: false,
+      hide_dark_mode_toggle: false,
       enable_event_management: true
     };
   }
@@ -6796,6 +6799,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
       <div class="boolean-list">
         <label><input type="checkbox" data-field="background_transparent" ${this._config.background_transparent ? 'checked' : ''}> Transparent background surfaces</label>
         <label><input type="checkbox" data-field="default_dark_mode" ${this._config.default_dark_mode ? 'checked' : ''}> Default dark mode</label>
+        <label><input type="checkbox" data-field="hide_dark_mode_toggle" ${this._config.hide_dark_mode_toggle ? 'checked' : ''}> Hide dark mode toggle</label>
       </div>
     `);
 
