@@ -680,6 +680,8 @@ class SkylightCalendarCard extends HTMLElement {
       compact_height: config.compact_height || false, // Fit to screen height
       height_scale: config.height_scale || 1.0, // Scale factor for height (0.5 = 50%, 2.0 = 200%)
       compact_header: config.compact_header || false, // Compact header layout
+      hide_calendars: config.hide_calendars || false, // Hide calendar badges from header area
+      hide_controls: config.hide_controls || false, // Hide header controls (add/view/theme/navigation)
       hide_event_calendar_bubble: config.hide_event_calendar_bubble || false, // Hide calendar initial bubble on events
       event_font_size: config.event_font_size ?? 11, // Font size for event bubble text in every view
       event_time_font_size: config.event_time_font_size ?? 9, // Font size for event time text in every view
@@ -3021,23 +3023,26 @@ class SkylightCalendarCard extends HTMLElement {
   renderStandardHeader() {
     const writableCalendars = this.getWritableCalendars();
     const canAddEvents = this._config.enable_event_management && writableCalendars.length > 0;
+    const shouldShowControls = !this._config.hide_controls;
     
     return `
       <div class="header">
         <div class="header-left">
           <h2 class="header-title">${this._config.title}</h2>
         </div>
-        <div class="header-controls">
-          ${canAddEvents ? `<button class="add-event-button" id="add-event-btn"><span class="icon">+</span>${this.t('addEvent')}</button>` : ''}
-          ${this.renderThemeToggle()}
-          ${this.renderViewModeButtons()}
-          <div class="period-controls">
-            <button class="nav-button" id="prev-period">‹</button>
-            <div class="month-year">${this.getPeriodLabel()}</div>
-            <button class="nav-button" id="next-period">›</button>
-            <button class="today-button" id="today">${this.t('today')}</button>
+        ${shouldShowControls ? `
+          <div class="header-controls">
+            ${canAddEvents ? `<button class="add-event-button" id="add-event-btn"><span class="icon">+</span>${this.t('addEvent')}</button>` : ''}
+            ${this.renderThemeToggle()}
+            ${this.renderViewModeButtons()}
+            <div class="period-controls">
+              <button class="nav-button" id="prev-period">‹</button>
+              <div class="month-year">${this.getPeriodLabel()}</div>
+              <button class="nav-button" id="next-period">›</button>
+              <button class="today-button" id="today">${this.t('today')}</button>
+            </div>
           </div>
-        </div>
+        ` : ''}
       </div>
     `;
   }
@@ -3045,24 +3050,28 @@ class SkylightCalendarCard extends HTMLElement {
   renderCompactHeader() {
     const writableCalendars = this.getWritableCalendars();
     const canAddEvents = this._config.enable_event_management && writableCalendars.length > 0;
+    const shouldShowCalendars = !this._config.hide_calendars;
+    const shouldShowControls = !this._config.hide_controls;
     
     return `
       <div class="header header-compact">
         <div class="compact-header-left">
           <h2 class="header-title">${this._config.title}</h2>
-          ${this.renderCalendarBadgesInline()}
+          ${shouldShowCalendars ? this.renderCalendarBadgesInline() : ''}
         </div>
-        <div class="header-controls compact-header-controls">
-          ${canAddEvents ? `<button class="compact-add-event-button" id="add-event-btn"><span class="icon">+</span>${this.t('addEvent')}</button>` : ''}
-          ${this.renderThemeToggle()}
-          ${this.renderViewModeButtons()}
-          <div class="compact-period-controls">
-            <button class="nav-button" id="prev-period">‹</button>
-            <div class="month-year">${this.getPeriodLabel()}</div>
-            <button class="nav-button" id="next-period">›</button>
-            <button class="today-button" id="today">${this.t('today')}</button>
+        ${shouldShowControls ? `
+          <div class="header-controls compact-header-controls">
+            ${canAddEvents ? `<button class="compact-add-event-button" id="add-event-btn"><span class="icon">+</span>${this.t('addEvent')}</button>` : ''}
+            ${this.renderThemeToggle()}
+            ${this.renderViewModeButtons()}
+            <div class="compact-period-controls">
+              <button class="nav-button" id="prev-period">‹</button>
+              <div class="month-year">${this.getPeriodLabel()}</div>
+              <button class="nav-button" id="next-period">›</button>
+              <button class="today-button" id="today">${this.t('today')}</button>
+            </div>
           </div>
-        </div>
+        ` : ''}
       </div>
     `;
   }
@@ -3152,6 +3161,8 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   renderCalendarView() {
+    const shouldShowHeaderBadges = !this._config.compact_header && !this._config.hide_calendars;
+
     if (this._viewMode === 'month') {
       const isCompactMonth = this._config.compact_height;
       const compactMaxHeight = isCompactMonth ? this.getCompactMaxHeight(this._monthContainerTopInViewport) : null;
@@ -3162,7 +3173,7 @@ class SkylightCalendarCard extends HTMLElement {
       const monthClass = isCompactMonth ? 'calendar-grid compact-month' : 'calendar-grid';
 
       return `
-        ${!this._config.compact_header ? this.renderCalendarBadges() : ''}
+        ${shouldShowHeaderBadges ? this.renderCalendarBadges() : ''}
         <div class="${monthClass}" style="${monthStyle}">
           ${this.renderDayHeaders()}
           ${this.renderDays()}
@@ -3192,7 +3203,7 @@ class SkylightCalendarCard extends HTMLElement {
     const dayNames = this.getWeekdayNames('short');
     
     return `
-      ${!this._config.compact_header ? this.renderCalendarBadges() : ''}
+      ${!this._config.compact_header && !this._config.hide_calendars ? this.renderCalendarBadges() : ''}
       <div class="week-compact-container">
         ${weekDays.map(date => {
           const isToday = date.toDateString() === today.toDateString();
@@ -3276,7 +3287,7 @@ class SkylightCalendarCard extends HTMLElement {
     const showCurrentTimeBar = this._config.show_current_time_bar && this.shouldShowCurrentTimeBar(today, startHour, endHour);
     
     return `
-      ${!this._config.compact_header ? this.renderCalendarBadges() : ''}
+      ${!this._config.compact_header && !this._config.hide_calendars ? this.renderCalendarBadges() : ''}
       <div class="week-standard-container" style="${containerStyle}">
         <!-- Time column -->
         <div class="time-column">
@@ -6267,6 +6278,8 @@ class SkylightCalendarCard extends HTMLElement {
       show_current_time_bar: false,
       combine_style: 'bars',
       combine_background: 'primary',
+      hide_calendars: false,
+      hide_controls: false,
       enable_event_management: true
     };
   }
@@ -6757,6 +6770,8 @@ class SkylightCalendarCardEditor extends HTMLElement {
       <div class="boolean-list">
         <label><input type="checkbox" data-field="compact_height" ${this._config.compact_height ? 'checked' : ''}> Compact height</label>
         <label><input type="checkbox" data-field="compact_header" ${this._config.compact_header ? 'checked' : ''}> Compact header</label>
+        <label><input type="checkbox" data-field="hide_calendars" ${this._config.hide_calendars ? 'checked' : ''}> Hide calendar badges</label>
+        <label><input type="checkbox" data-field="hide_controls" ${this._config.hide_controls ? 'checked' : ''}> Hide header controls</label>
       </div>
       ${this._config.compact_height ? '' : `
         <div class="field">
