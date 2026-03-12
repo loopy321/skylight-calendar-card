@@ -3845,8 +3845,36 @@ class SkylightCalendarCard extends HTMLElement {
   getNormalizedEventTimeValue(value) {
     if (!value) return '';
 
+    const toDateTimeTimestamp = (rawValue) => {
+      const normalizedRaw = this.normalizeEventTextValue(rawValue);
+      if (!normalizedRaw) return null;
+
+      const floatingMatch = normalizedRaw.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})?$/i);
+      if (!floatingMatch) {
+        return null;
+      }
+
+      const [, yearText, monthText, dayText, hourText, minuteText, secondText, fractionText, tzText] = floatingMatch;
+      const year = Number(yearText);
+      const month = Number(monthText);
+      const day = Number(dayText);
+      const hour = Number(hourText);
+      const minute = Number(minuteText);
+      const second = Number(secondText || '0');
+      const millis = Number(((fractionText || '').slice(0, 3)).padEnd(3, '0'));
+
+      const timestamp = tzText
+        ? Date.parse(`${yearText}-${monthText}-${dayText}T${hourText}:${minuteText}:${String(second).padStart(2, '0')}.${String(millis).padStart(3, '0')}${tzText.toUpperCase()}`)
+        : new Date(year, month - 1, day, hour, minute, second, millis).getTime();
+
+      return Number.isFinite(timestamp) ? timestamp : null;
+    };
+
     if (typeof value === 'object') {
       if (value.dateTime) {
+        const parsedTimestamp = toDateTimeTimestamp(value.dateTime);
+        if (parsedTimestamp !== null) return `dt:${parsedTimestamp}`;
+
         const ts = new Date(value.dateTime).getTime();
         return Number.isFinite(ts) ? `dt:${ts}` : `dt:${String(value.dateTime)}`;
       }
@@ -3863,6 +3891,9 @@ class SkylightCalendarCard extends HTMLElement {
     if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
       return `d:${normalized}`;
     }
+
+    const parsedTimestamp = toDateTimeTimestamp(normalized);
+    if (parsedTimestamp !== null) return `dt:${parsedTimestamp}`;
 
     const ts = new Date(normalized).getTime();
     return Number.isFinite(ts) ? `dt:${ts}` : normalized;
