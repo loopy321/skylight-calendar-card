@@ -924,13 +924,9 @@ class SkylightCalendarCard extends HTMLElement {
     const chunkEndStr = chunk.endDate.toISOString();
 
     try {
-      // Use WebSocket API to get calendar events
-      return await this._hass.callWS({
-        type: 'calendar/event/list',
-        entity_id: entityId,
-        start_date_time: chunkStartStr,
-        end_date_time: chunkEndStr
-      });
+      // Use WebSocket API to get calendar events.
+      // Home Assistant command name varies by version.
+      return await this.fetchEventsViaWebSocket(entityId, chunkStartStr, chunkEndStr);
     } catch (error) {
       // WebSocket API might not be available in older HA versions or for some integrations
       // Try REST API fallback without logging (this is expected)
@@ -944,6 +940,15 @@ class SkylightCalendarCard extends HTMLElement {
         return [];
       }
     }
+  }
+
+  async fetchEventsViaWebSocket(entityId, chunkStartStr, chunkEndStr) {
+    return this._hass.callWS({
+      type: 'calendar/events',
+      entity_id: entityId,
+      start_date_time: chunkStartStr,
+      end_date_time: chunkEndStr
+    });
   }
 
   mergeEvents(existingEvents, incomingEvents) {
