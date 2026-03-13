@@ -679,6 +679,7 @@ class SkylightCalendarCard extends HTMLElement {
       week_start_hour: config.week_start_hour || 8, // Start hour for week-standard view
       week_end_hour: config.week_end_hour || 21, // End hour for week-standard view (9pm)
       compact_height: config.compact_height || false, // Fit to screen height
+      compact_width: config.compact_width || false, // Schedule view: allow day columns to shrink below minimum width
       height_scale: config.height_scale || 1.0, // Scale factor for height (0.5 = 50%, 2.0 = 200%)
       compact_header: config.compact_header || false, // Compact header layout
       hide_calendars: config.hide_calendars || false, // Hide calendar badges from header area
@@ -2071,6 +2072,10 @@ class SkylightCalendarCard extends HTMLElement {
         overflow: hidden;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
       }
+
+      .week-standard-container.compact-width .week-standard-day-column {
+        min-width: 0;
+      }
       
       .week-standard-day-header {
         padding: 16px;
@@ -3292,7 +3297,7 @@ class SkylightCalendarCard extends HTMLElement {
     
     return `
       ${!this._config.compact_header && !this._config.hide_calendars ? this.renderCalendarBadges() : ''}
-      <div class="week-standard-container" style="${containerStyle}">
+      <div class="week-standard-container ${this._config.compact_width ? 'compact-width' : ''}" style="${containerStyle}">
         <!-- Time column -->
         <div class="time-column">
           <div class="time-column-header-spacer"></div>
@@ -6284,6 +6289,7 @@ class SkylightCalendarCard extends HTMLElement {
       week_start_hour: 8,
       week_end_hour: 21,
       show_all_events_month: false,
+      compact_width: false,
       show_current_time_bar: false,
       combine_style: 'bars',
       combine_background: 'primary',
@@ -6779,6 +6785,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
       </div>
       <div class="boolean-list">
         <label><input type="checkbox" data-field="compact_height" ${this._config.compact_height ? 'checked' : ''}> Compact height</label>
+        <label><input type="checkbox" data-field="compact_width" ${this._config.compact_width ? 'checked' : ''}> Schedule view: compact width columns</label>
         <label><input type="checkbox" data-field="show_all_events_month" ${this._config.show_all_events_month ? 'checked' : ''}> Month view: show all events (override compact height)</label>
         <label><input type="checkbox" data-field="compact_header" ${this._config.compact_header ? 'checked' : ''}> Compact header</label>
         <label><input type="checkbox" data-field="hide_calendars" ${this._config.hide_calendars ? 'checked' : ''}> Hide calendar badges</label>
