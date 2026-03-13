@@ -502,7 +502,7 @@ class SkylightCalendarCard extends HTMLElement {
         return;
       }
 
-      if (this._config.compact_height && (this._viewMode === 'week-standard' || this._viewMode === 'month')) {
+      if (this._config.compact_height && (this._viewMode === 'week-standard' || (this._viewMode === 'month' && !this._config.show_all_events_month))) {
         this.render();
         return;
       }
@@ -675,6 +675,7 @@ class SkylightCalendarCard extends HTMLElement {
       rolling_days_week_compact: config.rolling_days_week_compact ?? null, // If set, compact week view shows current day + N days instead of week_days
       rolling_days_schedule: config.rolling_days_schedule ?? null, // If set, schedule week view shows current day + N days instead of week_days
       rolling_weeks: config.rolling_weeks || null, // If set, show current week + N weeks in month view
+      show_all_events_month: config.show_all_events_month || false, // In month view, show all events and allow week rows to grow while keeping row minimum height
       week_start_hour: config.week_start_hour || 8, // Start hour for week-standard view
       week_end_hour: config.week_end_hour || 21, // End hour for week-standard view (9pm)
       compact_height: config.compact_height || false, // Fit to screen height
@@ -1329,7 +1330,7 @@ class SkylightCalendarCard extends HTMLElement {
 
 
   updateMonthContainerTopInViewportFromDom() {
-    if (this._viewMode !== 'month' || !this._config.compact_height || !this.shadowRoot) return;
+    if (this._viewMode !== 'month' || !this._config.compact_height || this._config.show_all_events_month || !this.shadowRoot) return;
     if (this.isEventManagementDialogOpen()) return;
 
     const container = this.shadowRoot.querySelector('.calendar-grid');
@@ -3166,7 +3167,8 @@ class SkylightCalendarCard extends HTMLElement {
     const shouldShowHeaderBadges = !this._config.compact_header && !this._config.hide_calendars;
 
     if (this._viewMode === 'month') {
-      const isCompactMonth = this._config.compact_height;
+      const showAllEventsMonth = !!this._config.show_all_events_month;
+      const isCompactMonth = this._config.compact_height && !showAllEventsMonth;
       const compactMaxHeight = isCompactMonth ? this.getCompactMaxHeight(this._monthContainerTopInViewport) : null;
       const monthWeekRows = this.getMonthWeekRowCount();
       const monthStyle = compactMaxHeight
@@ -3775,6 +3777,10 @@ class SkylightCalendarCard extends HTMLElement {
 
   getMaxVisibleEventsForMonthDay() {
     const defaultMaxVisible = 3;
+
+    if (this._viewMode === 'month' && this._config.show_all_events_month) {
+      return Number.MAX_SAFE_INTEGER;
+    }
 
     if (this._viewMode !== 'month' || !this._config.compact_height) {
       return defaultMaxVisible;
@@ -6277,6 +6283,7 @@ class SkylightCalendarCard extends HTMLElement {
       week_days: [0, 1, 2, 3, 4, 5, 6],
       week_start_hour: 8,
       week_end_hour: 21,
+      show_all_events_month: false,
       show_current_time_bar: false,
       combine_style: 'bars',
       combine_background: 'primary',
@@ -6772,6 +6779,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
       </div>
       <div class="boolean-list">
         <label><input type="checkbox" data-field="compact_height" ${this._config.compact_height ? 'checked' : ''}> Compact height</label>
+        <label><input type="checkbox" data-field="show_all_events_month" ${this._config.show_all_events_month ? 'checked' : ''}> Month view: show all events (override compact height)</label>
         <label><input type="checkbox" data-field="compact_header" ${this._config.compact_header ? 'checked' : ''}> Compact header</label>
         <label><input type="checkbox" data-field="hide_calendars" ${this._config.hide_calendars ? 'checked' : ''}> Hide calendar badges</label>
         <label><input type="checkbox" data-field="hide_controls" ${this._config.hide_controls ? 'checked' : ''}> Hide header controls</label>
