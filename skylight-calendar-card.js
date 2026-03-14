@@ -1566,11 +1566,6 @@ class SkylightCalendarCard extends HTMLElement {
         margin-left: auto;
       }
 
-      .period-controls .month-year,
-      .compact-period-controls .month-year {
-        min-width: auto;
-      }
-
       .header-controls.is-wrapped {
         justify-content: center;
       }
@@ -1671,7 +1666,7 @@ class SkylightCalendarCard extends HTMLElement {
         font-size: 18px;
         font-weight: 500;
         color: white;
-        min-width: 140px;
+        min-width: 210px;
         text-align: center;
       }
       
@@ -2963,9 +2958,6 @@ class SkylightCalendarCard extends HTMLElement {
           text-align: center;
         }
         
-        .month-year {
-          min-width: auto;
-        }
         
         .week-standard-container {
           font-size: 10px;
@@ -3137,35 +3129,39 @@ class SkylightCalendarCard extends HTMLElement {
         const totalWeeks = this._config.rolling_weeks + 1;
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + (totalWeeks * 7) - 1);
-        
-        if (weekStart.getMonth() === weekEnd.getMonth() && weekStart.getFullYear() === weekEnd.getFullYear()) {
-          return `${this.getMonthNameShort(weekStart.getMonth())} ${weekStart.getDate()}-${weekEnd.getDate()}, ${weekStart.getFullYear()}`;
-        } else if (weekStart.getFullYear() === weekEnd.getFullYear()) {
-          return `${this.getMonthNameShort(weekStart.getMonth())} ${weekStart.getDate()} - ${this.getMonthNameShort(weekEnd.getMonth())} ${weekEnd.getDate()}, ${weekStart.getFullYear()}`;
-        } else {
-          return `${this.getMonthNameShort(weekStart.getMonth())} ${weekStart.getDate()}, ${weekStart.getFullYear()} - ${this.getMonthNameShort(weekEnd.getMonth())} ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`;
-        }
+
+        return this.formatPeriodDateRange(weekStart, weekEnd);
       }
       
       // Standard month view
       const month = this._currentDate.getMonth();
       const year = this._currentDate.getFullYear();
-      return `${this.getMonthNameShort(month)} ${year}`;
+      return `${this.getMonthName(month)} ${year}`;
     } else {
       const weekDays = this.getWeekDays();
       if (weekDays.length === 0) return '';
       const start = weekDays[0];
       const end = weekDays[weekDays.length - 1];
-      if (start.getMonth() === end.getMonth()) {
-        if (start.getDate() === end.getDate()) {
-          return `${this.getMonthNameShort(start.getMonth())} ${start.getDate()}, ${start.getFullYear()}`;
-        } else {
-          return `${this.getMonthNameShort(start.getMonth())} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`;
-        }
-      } else {
-        return `${this.getMonthNameShort(start.getMonth())} ${start.getDate()} - ${this.getMonthNameShort(end.getMonth())} ${end.getDate()}, ${start.getFullYear()}`;
-      }
+      return this.formatPeriodDateRange(start, end);
     }
+  }
+
+  formatPeriodDateRange(startDate, endDate) {
+    const formatter = new Intl.DateTimeFormat(this.getLocale(), {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+
+    if (typeof formatter.formatRange === 'function') {
+      return formatter.formatRange(startDate, endDate);
+    }
+
+    if (startDate.getTime() === endDate.getTime()) {
+      return formatter.format(startDate);
+    }
+
+    return `${formatter.format(startDate)} - ${formatter.format(endDate)}`;
   }
 
   renderCalendarView() {
