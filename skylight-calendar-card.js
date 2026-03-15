@@ -1895,9 +1895,9 @@ class SkylightCalendarCard extends HTMLElement {
         opacity: 0.9;
         margin-top: 4px;
         line-height: 1.3;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
       
       /* Week Standard View Styles */
@@ -2238,9 +2238,9 @@ class SkylightCalendarCard extends HTMLElement {
         opacity: 0.9;
         margin-top: 4px;
         line-height: 1.3;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       .week-standard-event-calendar-name {
