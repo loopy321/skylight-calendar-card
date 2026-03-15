@@ -4440,7 +4440,7 @@ class SkylightCalendarCard extends HTMLElement {
         // Set the time on the date
         date.setHours(hour, 0, 0, 0);
         
-        this.showCreateEventModal(date);
+        this.showCreateEventModal(date, date);
       });
     });
     
@@ -4639,11 +4639,12 @@ class SkylightCalendarCard extends HTMLElement {
     
     // Set defaults
     const now = new Date();
-    const startDate = defaultDate || now;
-    const startTime = defaultTime || startDate;
+    const startDate = defaultDate ? new Date(defaultDate) : now;
+    const hasExplicitDefaultTime = defaultTime instanceof Date;
+    const startTime = hasExplicitDefaultTime ? new Date(defaultTime) : new Date(startDate);
     
     // Round to next half hour for timed events
-    if (!defaultDate || defaultDate.getHours() !== 0) {
+    if (!hasExplicitDefaultTime && (!defaultDate || defaultDate.getHours() !== 0)) {
       const minutes = startTime.getMinutes();
       if (minutes < 30) {
         startTime.setMinutes(30);
