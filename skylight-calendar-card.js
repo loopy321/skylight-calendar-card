@@ -4437,22 +4437,31 @@ class SkylightCalendarCard extends HTMLElement {
     };
   }
 
+  getLocalDateKey(date) {
+    return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  }
+
+  eventSpansMultipleLocalDates(eventStart, eventEnd) {
+    return this.getLocalDateKey(eventStart) !== this.getLocalDateKey(eventEnd);
+  }
+
   getScheduleVisualInfo(event) {
     const { eventStart, eventEnd, isAllDay } = this.getEventDateTimeInfo(event);
-    const durationMs = eventEnd.getTime() - eventStart.getTime();
-    const rendersAsAllDay = isAllDay || durationMs >= 24 * 60 * 60 * 1000;
+    const rendersAsAllDay = isAllDay || this.eventSpansMultipleLocalDates(eventStart, eventEnd);
+    const displayTitle = event.summary || this.t('untitledEvent');
+    const shouldIncludeStartTime = !isAllDay && rendersAsAllDay && this.shouldShowEventTime(event);
 
     return {
       eventStart,
       eventEnd,
       isAllDay,
       rendersAsAllDay,
-      displayTitle: !isAllDay && rendersAsAllDay
+      displayTitle: shouldIncludeStartTime
         ? this.t('eventTitleWithStartTime', {
-            title: event.summary || this.t('untitledEvent'),
+            title: displayTitle,
             time: this.formatScheduleTime(eventStart)
           })
-        : (event.summary || this.t('untitledEvent'))
+        : displayTitle
     };
   }
 
