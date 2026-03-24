@@ -735,6 +735,15 @@ class SkylightCalendarCard extends HTMLElement {
     const normalizedHeaderColor = this.normalizeSingleColor(config.header_color);
     const normalizedHeaderTextColor = this.normalizeSingleColor(config.header_text_color);
 
+    const configuredWeekStartHour = Number(config.week_start_hour);
+    const normalizedWeekStartHour = Number.isFinite(configuredWeekStartHour)
+      ? Math.min(23, Math.max(0, configuredWeekStartHour))
+      : 0;
+    const configuredWeekEndHour = Number(config.week_end_hour);
+    const normalizedWeekEndHour = Number.isFinite(configuredWeekEndHour)
+      ? Math.min(23, Math.max(0, configuredWeekEndHour))
+      : 23;
+
     this._config = {
       title: this._hasCustomTitle ? config.title : translate(language, 'defaultTitle'),
       entities: config.entities,
@@ -749,8 +758,8 @@ class SkylightCalendarCard extends HTMLElement {
       rolling_days_schedule: config.rolling_days_schedule ?? null, // If set, schedule week view shows current day + N days instead of week_days
       rolling_weeks: config.rolling_weeks || null, // If set, show current week + N weeks in month view
       show_all_events_month: config.show_all_events_month || false, // In month view, show all events and allow week rows to grow while keeping row minimum height
-      week_start_hour: config.week_start_hour || 8, // Start hour for week-standard view
-      week_end_hour: config.week_end_hour || 21, // End hour for week-standard view (9pm)
+      week_start_hour: normalizedWeekStartHour, // Start hour for week-standard view
+      week_end_hour: normalizedWeekEndHour, // End hour for week-standard view
       compact_height: config.compact_height || false, // Fit to screen height
       compact_width: config.compact_width || false, // Schedule view: allow day columns to shrink below minimum width
       height_scale: config.height_scale || 1.0, // Scale factor for height (0.5 = 50%, 2.0 = 200%)
@@ -6762,8 +6771,8 @@ class SkylightCalendarCard extends HTMLElement {
       default_view: 'month',
       first_day_of_week: 0,
       week_days: [0, 1, 2, 3, 4, 5, 6],
-      week_start_hour: 8,
-      week_end_hour: 21,
+      week_start_hour: 0,
+      week_end_hour: 23,
       show_all_events_month: false,
       compact_width: false,
       show_current_time_bar: false,
@@ -6942,8 +6951,8 @@ class SkylightCalendarCardEditor extends HTMLElement {
 
   getEditorDefaultValue(key) {
     const defaults = {
-      week_start_hour: 8,
-      week_end_hour: 21,
+      week_start_hour: 0,
+      week_end_hour: 23,
       height_scale: 1,
       event_font_size: 11,
       event_time_font_size: 9,
@@ -7317,7 +7326,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
       <div class="field-row">
         <div class="field field-inline">
           <label for="week_end_hour">Week end hour</label>
-          <input id="week_end_hour" data-field="week_end_hour" data-type="number" type="number" min="1" max="24" value="${Number(this._config.week_end_hour ?? this.getEditorDefaultValue('week_end_hour'))}">
+          <input id="week_end_hour" data-field="week_end_hour" data-type="number" type="number" min="0" max="23" value="${Number(this._config.week_end_hour ?? this.getEditorDefaultValue('week_end_hour'))}">
         </div>
       </div>
       <div class="field-row">
@@ -8250,7 +8259,12 @@ class SkylightCalendarCardEditor extends HTMLElement {
         nextConfig[field] = this.getEditorDefaultValue(field);
       } else {
         const numericValue = Number(event.target.value);
-        nextConfig[field] = Number.isFinite(numericValue) ? numericValue : this.getEditorDefaultValue(field);
+        const parsedValue = Number.isFinite(numericValue) ? numericValue : this.getEditorDefaultValue(field);
+        if (field === 'week_start_hour' || field === 'week_end_hour') {
+          nextConfig[field] = Math.min(23, Math.max(0, parsedValue));
+        } else {
+          nextConfig[field] = parsedValue;
+        }
       }
     } else if (event.target.dataset.type === 'nullable-number') {
       if (event.target.value === '') {
