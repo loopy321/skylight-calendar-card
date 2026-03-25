@@ -760,6 +760,7 @@ class SkylightCalendarCard extends HTMLElement {
       show_all_events_month: config.show_all_events_month || false, // In month view, show all events and allow week rows to grow while keeping row minimum height
       week_start_hour: normalizedWeekStartHour, // Start hour for week-standard view
       week_end_hour: normalizedWeekEndHour, // End hour for week-standard view
+      lock_schedule_hours: config.lock_schedule_hours ?? false, // Keep schedule hours fixed even when events are outside the configured range
       compact_height: config.compact_height || false, // Fit to screen height
       compact_width: config.compact_width || false, // Schedule view: allow day columns to shrink below minimum width
       height_scale: config.height_scale || 1.0, // Scale factor for height (0.5 = 50%, 2.0 = 200%)
@@ -3514,8 +3515,7 @@ class SkylightCalendarCard extends HTMLElement {
     const weekDays = this.getWeekDays();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const startHour = this._config.week_start_hour;
-    const endHour = this._config.week_end_hour;
+    const { startHour, endHour } = this.getScheduleHourRangeForWeek(weekDays);
     const hours = [];
 
     for (let h = startHour; h <= endHour; h++) {
@@ -3588,6 +3588,51 @@ class SkylightCalendarCard extends HTMLElement {
         }).join('')}
       </div>
     `;
+  }
+
+  getScheduleHourRangeForWeek(weekDays) {
+    const configuredStartHour = Number.isFinite(Number(this._config.week_start_hour))
+      ? Math.min(23, Math.max(0, Number(this._config.week_start_hour)))
+      : 0;
+    const configuredEndHour = Number.isFinite(Number(this._config.week_end_hour))
+      ? Math.min(23, Math.max(0, Number(this._config.week_end_hour)))
+      : 23;
+
+    if (this._config.lock_schedule_hours) {
+      const normalizedEndHour = Math.max(configuredStartHour, configuredEndHour);
+      return { startHour: configuredStartHour, endHour: normalizedEndHour };
+    }
+
+    let dynamicStartHour = configuredStartHour;
+    let dynamicEndHour = configuredEndHour;
+
+    weekDays.forEach((date) => {
+      this.getEventsForDay(date).forEach((event) => {
+        if (this._hiddenCalendars.has(event.entityId)) {
+          return;
+        }
+
+        const daySegment = this.getEventDaySegment(event, date, { useScheduleVisualTreatment: true });
+        if (!daySegment || daySegment.isAllDaySegment) {
+          return;
+        }
+
+        const startHourFloat = this.getLocalDayHourFloat(daySegment.segmentStart, date);
+        const endHourFloat = this.getLocalDayHourFloat(daySegment.segmentEnd, date);
+
+        if (Number.isFinite(startHourFloat)) {
+          dynamicStartHour = Math.min(dynamicStartHour, Math.floor(startHourFloat));
+        }
+        if (Number.isFinite(endHourFloat)) {
+          dynamicEndHour = Math.max(dynamicEndHour, Math.floor(endHourFloat));
+        }
+      });
+    });
+
+    const normalizedStartHour = Math.min(23, Math.max(0, dynamicStartHour));
+    const normalizedEndHour = Math.max(normalizedStartHour, Math.min(23, Math.max(0, dynamicEndHour)));
+
+    return { startHour: normalizedStartHour, endHour: normalizedEndHour };
   }
 
   buildAllDayLayoutForSchedule(weekDays) {
@@ -6775,6 +6820,7 @@ class SkylightCalendarCard extends HTMLElement {
       week_days: [0, 1, 2, 3, 4, 5, 6],
       week_start_hour: 0,
       week_end_hour: 23,
+      lock_schedule_hours: false,
       show_all_events_month: false,
       compact_width: false,
       show_current_time_bar: false,
@@ -6955,6 +7001,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
     const defaults = {
       week_start_hour: 0,
       week_end_hour: 23,
+      lock_schedule_hours: false,
       height_scale: 1,
       event_font_size: 11,
       event_time_font_size: 9,
@@ -7330,6 +7377,9 @@ class SkylightCalendarCardEditor extends HTMLElement {
           <label for="week_end_hour">Week end hour</label>
           <input id="week_end_hour" data-field="week_end_hour" data-type="number" type="number" min="0" max="23" value="${Number(this._config.week_end_hour ?? this.getEditorDefaultValue('week_end_hour'))}">
         </div>
+      </div>
+      <div class="boolean-list">
+        <label><input type="checkbox" data-field="lock_schedule_hours" ${this._config.lock_schedule_hours ? 'checked' : ''}> Schedule view: lock week start/end hours</label>
       </div>
       <div class="field-row">
         <div class="field field-inline">
