@@ -3035,8 +3035,6 @@ class SkylightCalendarCard extends HTMLElement {
 
       .calendar-container.dark-mode .day-number,
       .calendar-container.dark-mode .month-year,
-      .calendar-container.dark-mode .all-day-event-title,
-      .calendar-container.dark-mode .week-standard-event,
       .calendar-container.dark-mode .modal-title,
       .calendar-container.dark-mode .confirm-title,
       .calendar-container.dark-mode .recurring-option-title {
@@ -3055,10 +3053,6 @@ class SkylightCalendarCard extends HTMLElement {
         color: #c7d0db;
       }
 
-      .calendar-container.dark-mode .event,
-      .calendar-container.dark-mode .week-compact-event,
-      .calendar-container.dark-mode .week-standard-event,
-      .calendar-container.dark-mode .all-day-event,
       .calendar-container.dark-mode .week-standard-day-column,
       .calendar-container.dark-mode .week-day-column,
       .calendar-container.dark-mode .modal-content,
