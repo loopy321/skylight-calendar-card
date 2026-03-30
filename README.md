@@ -1,6 +1,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/hacs/integration)
 [![GitHub release](https://img.shields.io/github/release/superdingo101/skylight-calendar-card.svg)](https://github.com/superdingo101/skylight-calendar-card/releases)
 [![GitHub stars](https://img.shields.io/github/stars/superdingo101/skylight-calendar-card.svg)](https://github.com/superdingo101/skylight-calendar-card/stargazers)
+![Github All Releases](https://img.shields.io/github/downloads/superdingo101/skylight-calendar-card/total.svg)
 [![GitHub issues](https://img.shields.io/github/issues/superdingo101/skylight-calendar-card.svg)](https://github.com/superdingo101/skylight-calendar-card/issues)
 [![License](https://img.shields.io/github/license/superdingo101/skylight-calendar-card.svg)](LICENSE)
 
@@ -96,7 +97,7 @@ Full documentation has been moved to the wiki pages in this repository:
 - [Views & Navigation](https://github.com/superdingo101/skylight-calendar-card/wiki/Views-and-Navigation)
 - [Event Management](https://github.com/superdingo101/skylight-calendar-card/wiki/Event-Management)
 - [Troubleshooting](https://github.com/superdingo101/skylight-calendar-card/wiki/Troubleshooting)
-- [Compatibility with Card Mod](https://github.com/superdingo101/skylight-calendar-card/wiki/Compatibility-with-Card-Mod)
+- [Compatibility with UIX (previously Card Mod)](https://github.com/superdingo101/skylight-calendar-card/wiki/Compatibility-with-UIX-(previously-Card-Mod))
 - [Development](https://github.com/superdingo101/skylight-calendar-card/wiki/Development)
 
 <br>
