@@ -539,7 +539,7 @@ class SkylightCalendarCard extends HTMLElement {
         return;
       }
 
-      if (this._config.compact_height && (this._viewMode === 'week-standard' || this._viewMode === 'agenda' || (this._viewMode === 'month' && !this._config.show_all_events_month))) {
+      if (this._config.compact_height && (this._viewMode === 'week-standard' || this._viewMode === 'agenda' || (this._viewMode === 'month' && !this.shouldShowAllEventsInMonth()))) {
         this.render();
         return;
       }
@@ -551,6 +551,14 @@ class SkylightCalendarCard extends HTMLElement {
 
   getRootElementById(id) {
     return this._root?.querySelector(`#${id}`) || null;
+  }
+
+  shouldShowAllEventsInMonth() {
+    return !!(this._config?.show_all_events_month || this._config?.show_all_details_month);
+  }
+
+  shouldRenderMonthEventsAsWeekCompact() {
+    return this._viewMode === 'month' && !!this._config?.show_all_details_month;
   }
 
   getDashboardScopeKey() {
@@ -785,6 +793,7 @@ class SkylightCalendarCard extends HTMLElement {
       rolling_days_schedule: config.rolling_days_schedule ?? null, // If set, schedule week view shows current day + N days instead of week_days
       rolling_weeks: config.rolling_weeks || null, // If set, show current week + N weeks in month view
       show_all_events_month: config.show_all_events_month || false, // In month view, show all events and allow week rows to grow while keeping row minimum height
+      show_all_details_month: config.show_all_details_month || false, // In month view, render all events with week-compact styling (also implies show_all_events_month behavior)
       disable_swipe_controls: config.disable_swipe_controls ?? false, // Disable left/right swipe period navigation
       week_start_hour: normalizedWeekStartHour, // Start hour for week-standard view
       week_end_hour: normalizedWeekEndHour, // End hour for week-standard view
@@ -1495,7 +1504,7 @@ class SkylightCalendarCard extends HTMLElement {
 
 
   updateMonthContainerTopInViewportFromDom() {
-    if (this._viewMode !== 'month' || !this._config.compact_height || this._config.show_all_events_month || !this._root) return;
+    if (this._viewMode !== 'month' || !this._config.compact_height || this.shouldShowAllEventsInMonth() || !this._root) return;
     if (this.isEventManagementDialogOpen()) return;
 
     const container = this._root.querySelector('.calendar-grid');
@@ -3829,7 +3838,7 @@ class SkylightCalendarCard extends HTMLElement {
     const shouldShowHeaderBadges = !this._config.compact_header && !this._config.hide_calendars;
 
     if (this._viewMode === 'month') {
-      const showAllEventsMonth = !!this._config.show_all_events_month;
+      const showAllEventsMonth = this.shouldShowAllEventsInMonth();
       const isCompactMonth = this._config.compact_height && !showAllEventsMonth;
       const compactMaxHeight = isCompactMonth ? this.getCompactMaxHeight(this._monthContainerTopInViewport) : null;
       const monthWeekRows = this.getMonthWeekRowCount();
@@ -3885,21 +3894,7 @@ class SkylightCalendarCard extends HTMLElement {
               </div>
               <div class="week-day-events">
                 ${events.map(event => {
-                  const daySegment = this.getEventDaySegment(event, date);
-                  if (!daySegment) return '';
-                  const { segmentStart, segmentEnd, isAllDaySegment } = daySegment;
-                  const timeLabel = isAllDaySegment
-                    ? this.t('allDay')
-                    : `${this.formatTime(segmentStart)} - ${this.formatTime(segmentEnd)}`;
-                  const eventStyle = this.getEventStyle(event);
-
-                  return `
-                    <div class="week-compact-event" style="${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize()}; --event-time-font-size: ${this.getEventTimeFontSize()}; --event-location-font-size: ${this.getEventLocationFontSize()}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
-                      <div class="week-compact-event-time">${timeLabel}</div>
-                      <div class="week-compact-event-title">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</div>
-                      ${this.shouldShowEventLocation(event) ? `<div class="week-compact-event-location">📍 ${this.escapeHtml(event.location)}</div>` : ''}
-                    </div>
-                  `;
+                  return this.renderWeekCompactEvent(event, date);
                 }).join('')}
                 ${events.length === 0 ? `<div style="color: #9ca3af; font-size: 13px; text-align: center; margin-top: 20px;">${this.t('noEvents')}</div>` : ''}
               </div>
@@ -4734,7 +4729,7 @@ class SkylightCalendarCard extends HTMLElement {
   getMaxVisibleEventsForMonthDay() {
     const defaultMaxVisible = 3;
 
-    if (this._viewMode === 'month' && this._config.show_all_events_month) {
+    if (this._viewMode === 'month' && this.shouldShowAllEventsInMonth()) {
       return Number.MAX_SAFE_INTEGER;
     }
 
@@ -4790,8 +4785,34 @@ class SkylightCalendarCard extends HTMLElement {
     return `
       <div class="${classes}" data-date="${date.toISOString()}">
         <div class="day-number">${dayNum}</div>
-        ${dayEvents.slice(0, visibleEvents).map(event => this.renderEvent(event, date)).join('')}
+        ${dayEvents.slice(0, visibleEvents).map(event => this.renderMonthDayEvent(event, date)).join('')}
         ${hiddenEventCount > 0 ? `<div class="more-events" data-click-target="more-events">${this.t('moreEvents', { count: hiddenEventCount })}</div>` : ''}
+      </div>
+    `;
+  }
+
+  renderMonthDayEvent(event, date) {
+    if (this.shouldRenderMonthEventsAsWeekCompact()) {
+      return this.renderWeekCompactEvent(event, date);
+    }
+
+    return this.renderEvent(event, date);
+  }
+
+  renderWeekCompactEvent(event, date) {
+    const daySegment = this.getEventDaySegment(event, date);
+    if (!daySegment) return '';
+    const { segmentStart, segmentEnd, isAllDaySegment } = daySegment;
+    const timeLabel = isAllDaySegment
+      ? this.t('allDay')
+      : `${this.formatTime(segmentStart)} - ${this.formatTime(segmentEnd)}`;
+    const eventStyle = this.getEventStyle(event);
+
+    return `
+      <div class="week-compact-event" style="${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize()}; --event-time-font-size: ${this.getEventTimeFontSize()}; --event-location-font-size: ${this.getEventLocationFontSize()}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
+        <div class="week-compact-event-time">${timeLabel}</div>
+        <div class="week-compact-event-title">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</div>
+        ${this.shouldShowEventLocation(event) ? `<div class="week-compact-event-location">📍 ${this.escapeHtml(event.location)}</div>` : ''}
       </div>
     `;
   }
@@ -7482,6 +7503,7 @@ class SkylightCalendarCard extends HTMLElement {
       lock_schedule_hours: false,
       disable_swipe_controls: false,
       show_all_events_month: false,
+      show_all_details_month: false,
       compact_width: false,
       show_current_time_bar: false,
       show_event_location: false,
@@ -8075,6 +8097,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
         <label><input type="checkbox" data-field="compact_height" ${this._config.compact_height ? 'checked' : ''}> Compact height</label>
         <label><input type="checkbox" data-field="compact_width" ${this._config.compact_width ? 'checked' : ''}> Schedule view: compact width columns</label>
         <label><input type="checkbox" data-field="show_all_events_month" ${this._config.show_all_events_month ? 'checked' : ''}> Month view: show all events (override compact height)</label>
+        <label><input type="checkbox" data-field="show_all_details_month" ${this._config.show_all_details_month ? 'checked' : ''}> Month view: show all details (week-compact style + override compact height)</label>
         <label><input type="checkbox" data-field="compact_header" ${this._config.compact_header ? 'checked' : ''}> Compact header</label>
         <label><input type="checkbox" data-field="hide_calendars" ${this._config.hide_calendars ? 'checked' : ''}> Hide calendar badges</label>
         <label><input type="checkbox" data-field="hide_controls" ${this._config.hide_controls ? 'checked' : ''}> Hide header controls</label>
