@@ -802,6 +802,7 @@ class SkylightCalendarCard extends HTMLElement {
       compact_width: config.compact_width || false, // Schedule view: allow day columns to shrink below minimum width
       height_scale: config.height_scale || 1.0, // Scale factor for height (0.5 = 50%, 2.0 = 200%)
       compact_header: config.compact_header || false, // Compact header layout
+      hide_year: config.hide_year || false, // Hide year in header period label
       hide_calendars: config.hide_calendars || false, // Hide calendar badges from header area
       hide_calendar_names: config.hide_calendar_names || false, // Header calendar badges: show icons only
       hide_controls: config.hide_controls || false, // Hide header controls (add/view/theme/navigation)
@@ -1905,8 +1906,7 @@ class SkylightCalendarCard extends HTMLElement {
         margin: 0;
       }
 
-      .add-event-button,
-      .compact-add-event-button {
+      .add-event-button {
         background: var(--header-control-bg, rgba(255, 255, 255, 0.2));
         border: none;
         color: inherit;
@@ -1921,15 +1921,13 @@ class SkylightCalendarCard extends HTMLElement {
         transition: background 0.2s;
       }
 
-      .add-event-button:hover,
-      .compact-add-event-button:hover {
+      .add-event-button:hover {
         background: var(--header-control-bg-hover, rgba(255, 255, 255, 0.3));
         border-color: var(--header-control-border-hover, rgba(255, 255, 255, 0.6));
         transform: none;
       }
 
-      .add-event-button .icon,
-      .compact-add-event-button .icon {
+      .add-event-button .icon {
         font-size: 14px;
       }
 
@@ -2059,9 +2057,27 @@ class SkylightCalendarCard extends HTMLElement {
         transition: all 0.2s;
       }
 
-      .theme-toggle:hover {
+      .theme-toggle:hover,
+      .compact-add-event-button:hover {
         background: var(--header-control-bg-hover, rgba(255, 255, 255, 0.3));
         border-color: var(--header-control-border-hover, rgba(255, 255, 255, 0.6));
+      }
+
+      .compact-add-event-button {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid var(--header-control-border, rgba(255, 255, 255, 0.4));
+        background: var(--header-control-bg, rgba(255, 255, 255, 0.2));
+        color: inherit;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
+        transition: all 0.2s;
+        padding: 0;
       }
 
       .month-year {
@@ -2070,6 +2086,10 @@ class SkylightCalendarCard extends HTMLElement {
         color: inherit;
         min-width: 210px;
         text-align: center;
+      }
+
+      .calendar-container.hide-year .month-year {
+        min-width: 145px;
       }
 
       .calendar-grid {
@@ -3688,7 +3708,7 @@ class SkylightCalendarCard extends HTMLElement {
         </style>
       ` : ''}
 
-      <div class="calendar-container ${this._isDarkMode ? 'dark-mode' : ''} ${hasCustomBackground ? 'custom-background' : ''}" style="${containerStyle}">
+      <div class="calendar-container ${this._isDarkMode ? 'dark-mode' : ''} ${hasCustomBackground ? 'custom-background' : ''} ${this._config.hide_year ? 'hide-year' : ''}" style="${containerStyle}">
         ${this._config.compact_header ? this.renderCompactHeader() : this.renderStandardHeader()}
 
         ${this.renderCalendarView()}
@@ -3754,14 +3774,14 @@ class SkylightCalendarCard extends HTMLElement {
         </div>
         ${shouldShowControls ? `
           <div class="header-controls compact-header-controls">
-            ${canAddEvents ? `<button class="compact-add-event-button" id="add-event-btn"><span class="icon">+</span>${this.t('addEvent')}</button>` : ''}
-            ${this.renderThemeToggle()}
             <div class="compact-period-controls">
               <button class="nav-button" id="prev-period">‹</button>
               <div class="month-year">${this.getPeriodLabel()}</div>
               <button class="nav-button" id="next-period">›</button>
               <button class="today-button" id="today">${this.t('today')}</button>
             </div>
+            ${canAddEvents ? `<button class="compact-add-event-button" id="add-event-btn" aria-label="${this.t('addEvent')}" title="${this.t('addEvent')}">+</button>` : ''}
+            ${this.renderThemeToggle()}
             ${this.renderViewModeButtons()}
           </div>
         ` : ''}
@@ -3816,6 +3836,8 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   getPeriodLabel() {
+    const includeYear = !this._config.hide_year;
+
     if (this._viewMode === 'month') {
       // If rolling_weeks mode is active, show date range
       if (this._config.rolling_weeks !== null) {
@@ -3831,33 +3853,37 @@ class SkylightCalendarCard extends HTMLElement {
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekStart.getDate() + (totalWeeks * 7) - 1);
 
-        return this.formatPeriodDateRange(weekStart, weekEnd);
+        return this.formatPeriodDateRange(weekStart, weekEnd, includeYear);
       }
 
       // Standard month view
       const month = this._currentDate.getMonth();
       const year = this._currentDate.getFullYear();
-      return `${this.getMonthName(month)} ${year}`;
+      return includeYear ? `${this.getMonthName(month)} ${year}` : this.getMonthName(month);
     } else if (this._viewMode === 'agenda') {
       this.ensureAgendaWindowInitialized();
       const rangeStart = this._agendaVisibleStartDate || this._agendaStartDate;
       const rangeEnd = this._agendaVisibleEndDate || this._agendaEndDate;
-      return this.formatPeriodDateRange(rangeStart, rangeEnd);
+      return this.formatPeriodDateRange(rangeStart, rangeEnd, includeYear);
     } else {
       const weekDays = this.getWeekDays();
       if (weekDays.length === 0) return '';
       const start = weekDays[0];
       const end = weekDays[weekDays.length - 1];
-      return this.formatPeriodDateRange(start, end);
+      return this.formatPeriodDateRange(start, end, includeYear);
     }
   }
 
-  formatPeriodDateRange(startDate, endDate) {
-    const formatter = new Intl.DateTimeFormat(this.getLocale(), {
+  formatPeriodDateRange(startDate, endDate, includeYear = true) {
+    const formatOptions = {
       month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
+      day: 'numeric'
+    };
+    if (includeYear) {
+      formatOptions.year = 'numeric';
+    }
+
+    const formatter = new Intl.DateTimeFormat(this.getLocale(), formatOptions);
 
     if (typeof formatter.formatRange === 'function') {
       return formatter.formatRange(startDate, endDate);
@@ -7598,6 +7624,7 @@ class SkylightCalendarCard extends HTMLElement {
       combine_style: 'bars',
       combine_background: 'primary',
       hide_calendars: false,
+      hide_year: false,
       hide_controls: false,
       hide_dark_mode_toggle: false,
       color_scheme: 'auto',
@@ -8184,6 +8211,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
         <label><input type="checkbox" data-field="show_all_events_month" ${this._config.show_all_events_month ? 'checked' : ''}> Month view: show all events (override compact height)</label>
         <label><input type="checkbox" data-field="show_all_details_month" ${this._config.show_all_details_month ? 'checked' : ''}> Month view: show all details (week-compact style + override compact height)</label>
         <label><input type="checkbox" data-field="compact_header" ${this._config.compact_header ? 'checked' : ''}> Compact header</label>
+        <label><input type="checkbox" data-field="hide_year" ${this._config.hide_year ? 'checked' : ''}> Hide year in header period label</label>
         <label><input type="checkbox" data-field="hide_calendars" ${this._config.hide_calendars ? 'checked' : ''}> Hide calendar badges</label>
         <label><input type="checkbox" data-field="hide_calendar_names" ${this._config.hide_calendar_names ? 'checked' : ''}> Header badges: hide calendar names</label>
         <label><input type="checkbox" data-field="hide_controls" ${this._config.hide_controls ? 'checked' : ''}> Hide header controls</label>
