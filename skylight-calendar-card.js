@@ -807,6 +807,7 @@ class SkylightCalendarCard extends HTMLElement {
       hide_dark_mode_toggle: config.hide_dark_mode_toggle || false, // Hide dark mode toggle from header controls
       hide_event_calendar_bubble: config.hide_event_calendar_bubble || false, // Hide calendar initial bubble on events
       show_event_location: config.show_event_location || false, // Show event location in week and schedule views
+      use_short_location: config.use_short_location || false, // Shorten event location text in month/week/schedule/agenda views
       event_font_size: config.event_font_size ?? 11, // Font size for event bubble text in every view
       event_time_font_size: config.event_time_font_size ?? 9, // Font size for event time text in every view
       event_location_font_size: config.event_location_font_size ?? 9, // Font size for event location text in week and schedule views
@@ -4027,7 +4028,7 @@ class SkylightCalendarCard extends HTMLElement {
                 <div class="agenda-event" style="${eventStyle} --agenda-event-min-height: ${agendaEventMinHeight}; --event-bubble-font-size: ${this.getEventBubbleFontSize()}; --event-time-font-size: ${this.getEventTimeFontSize()}; --event-location-font-size: ${this.getEventLocationFontSize()}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
                   ${this.shouldShowEventTime(event) ? `<div class="agenda-event-time">${timeLabel}</div>` : ''}
                   <div class="agenda-event-title">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</div>
-                  ${this.shouldShowEventLocation(event) ? `<div class="agenda-event-location">📍 ${this.escapeHtml(event.location)}</div>` : ''}
+                  ${this.shouldShowEventLocation(event) ? `<div class="agenda-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location))}</div>` : ''}
                   ${this.renderEventIcon(event)}
                 </div>
               `;
@@ -4378,7 +4379,7 @@ class SkylightCalendarCard extends HTMLElement {
              data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
           <div class="week-standard-event-title">${this.escapeHtml(displayTitle || event.summary || this.t('untitledEvent'))}</div>
           ${this.shouldShowEventTime(event) ? `<div class="week-standard-event-time">${this.formatScheduleTime(eventStart)} - ${this.formatScheduleTime(eventEnd)}</div>` : ''}
-          ${this.shouldShowEventLocation(event) ? `<div class="week-standard-event-location">📍 ${this.escapeHtml(event.location)}</div>` : ''}
+          ${this.shouldShowEventLocation(event) ? `<div class="week-standard-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location))}</div>` : ''}
           ${this.renderEventIcon(event)}
         </div>
       `;
@@ -4501,6 +4502,49 @@ class SkylightCalendarCard extends HTMLElement {
 
   shouldShowEventLocation(event) {
     return !!(this._config.show_event_location && event?.location);
+  }
+
+  getDisplayLocation(location) {
+    const normalizedLocation = this.normalizeEventTextValue(location);
+    if (!normalizedLocation) return '';
+    if (!this._config?.use_short_location) return normalizedLocation;
+
+    const numberMatch = normalizedLocation.match(/\b\d+[A-Za-z0-9-]*\b/);
+    if (!numberMatch) {
+      return normalizedLocation;
+    }
+
+    const numberIndex = numberMatch.index ?? -1;
+    const hasPrefix = numberIndex > 0;
+    if (hasPrefix) {
+      const prefix = normalizedLocation
+        .slice(0, numberIndex)
+        .replace(/[\s,;:\/\\|-]+$/g, '')
+        .trim();
+      if (prefix) {
+        return prefix;
+      }
+      return normalizedLocation;
+    }
+
+    const commonStreetEndingPattern = /\b(street|st\.?|road|rd\.?|avenue|ave\.?|boulevard|blvd\.?|drive|dr\.?|lane|ln\.?|court|ct\.?|circle|cir\.?|place|pl\.?|parkway|pkwy\.?|way|terrace|ter\.?|highway|hwy\.?)\b/i;
+    const endingMatch = normalizedLocation.match(commonStreetEndingPattern);
+    if (!endingMatch) {
+      return normalizedLocation;
+    }
+
+    const endingStart = endingMatch.index ?? -1;
+    if (endingStart < 0) {
+      return normalizedLocation;
+    }
+
+    const endingText = endingMatch[0] || '';
+    const shortened = normalizedLocation
+      .slice(0, endingStart + endingText.length)
+      .replace(/[,\s;:\/\\|-]+$/g, '')
+      .trim();
+
+    return shortened || normalizedLocation;
   }
 
   getEventBubbleFontColor(event) {
@@ -4812,7 +4856,7 @@ class SkylightCalendarCard extends HTMLElement {
       <div class="week-compact-event" style="${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize()}; --event-time-font-size: ${this.getEventTimeFontSize()}; --event-location-font-size: ${this.getEventLocationFontSize()}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
         <div class="week-compact-event-time">${timeLabel}</div>
         <div class="week-compact-event-title">${this.escapeHtml(event.summary || this.t('untitledEvent'))}</div>
-        ${this.shouldShowEventLocation(event) ? `<div class="week-compact-event-location">📍 ${this.escapeHtml(event.location)}</div>` : ''}
+        ${this.shouldShowEventLocation(event) ? `<div class="week-compact-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location))}</div>` : ''}
       </div>
     `;
   }
@@ -7507,6 +7551,7 @@ class SkylightCalendarCard extends HTMLElement {
       compact_width: false,
       show_current_time_bar: false,
       show_event_location: false,
+      use_short_location: false,
       event_location_font_size: 9,
       background_opacity: 0,
       event_calendar_friendly_name: false,
@@ -8210,6 +8255,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
         <label><input type="checkbox" data-field="show_current_time_bar" ${this._config.show_current_time_bar ? 'checked' : ''}> Show current time bar</label>
         <label><input type="checkbox" data-field="use_24hr_schedule" ${this._config.use_24hr_schedule ? 'checked' : ''}> Use 24-hour schedule time</label>
         <label><input type="checkbox" data-field="show_event_location" ${this._config.show_event_location ? 'checked' : ''}> Show event location</label>
+        <label><input type="checkbox" data-field="use_short_location" ${this._config.use_short_location ? 'checked' : ''}> Shorten event location in views</label>
         <label><input type="checkbox" data-field="combine_calendars" ${this._config.combine_calendars ? 'checked' : ''}> Combine duplicate events across calendars</label>
       </div>
       ${this._config.combine_calendars ? `
