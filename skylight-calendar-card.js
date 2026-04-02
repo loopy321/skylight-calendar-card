@@ -803,6 +803,7 @@ class SkylightCalendarCard extends HTMLElement {
       height_scale: config.height_scale || 1.0, // Scale factor for height (0.5 = 50%, 2.0 = 200%)
       compact_header: config.compact_header || false, // Compact header layout
       hide_calendars: config.hide_calendars || false, // Hide calendar badges from header area
+      hide_calendar_names: config.hide_calendar_names || false, // Header calendar badges: show icons only
       hide_controls: config.hide_controls || false, // Hide header controls (add/view/theme/navigation)
       hide_dark_mode_toggle: config.hide_dark_mode_toggle || false, // Hide dark mode toggle from header controls
       hide_event_calendar_bubble: config.hide_event_calendar_bubble || false, // Hide calendar initial bubble on events
@@ -1863,6 +1864,39 @@ class SkylightCalendarCard extends HTMLElement {
 
       .calendar-badge-inline .calendar-badge-name {
         font-size: 12px;
+      }
+
+      .calendar-badge.hide-calendar-name {
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        padding: 0 !important;
+      }
+
+      .calendar-badge-inline.hide-calendar-name {
+        width: 32px;
+        height: 32px;
+      }
+
+      .calendar-badge.hide-calendar-name .calendar-badge-icon {
+        width: 100% !important;
+        height: 100% !important;
+        border-radius: inherit;
+        font-size: 16px !important;
+      }
+
+      .calendar-badge-inline.hide-calendar-name .calendar-badge-icon {
+        font-size: 14px !important;
+      }
+
+      .calendar-badge.hide-calendar-name .calendar-badge-icon ha-icon {
+        --mdc-icon-size: 60%;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
       }
 
       .header-title {
@@ -3737,6 +3771,7 @@ class SkylightCalendarCard extends HTMLElement {
 
   renderCalendarBadgesInline() {
     if (!this._config.entities || this._config.entities.length === 0) return '';
+    const hideCalendarNames = !!this._config.hide_calendar_names;
 
     return `
       <div class="calendar-badges-inline">
@@ -3749,12 +3784,12 @@ class SkylightCalendarCard extends HTMLElement {
           const badgeTextColor = isHidden ? '#9ca3af' : this.getContractColor(badgeBackground);
 
           return `
-            <div class="calendar-badge calendar-badge-inline ${isHidden ? 'calendar-badge-hidden' : ''}"
+            <div class="calendar-badge calendar-badge-inline ${isHidden ? 'calendar-badge-hidden' : ''} ${hideCalendarNames ? 'hide-calendar-name' : ''}"
                  data-entity="${entityId}"
                  style="background: ${badgeBackground};
                         border-color: ${isHidden ? '#d1d5db' : color};">
               ${this.renderCalendarBadgeIcon(entityId, name, color, isHidden)}
-              <span class="calendar-badge-name" style="color: ${badgeTextColor}">${this.escapeHtml(name)}</span>
+              ${hideCalendarNames ? '' : `<span class="calendar-badge-name" style="color: ${badgeTextColor}">${this.escapeHtml(name)}</span>`}
             </div>
           `;
         }).join('')}
@@ -4206,6 +4241,7 @@ class SkylightCalendarCard extends HTMLElement {
 
   renderCalendarBadges() {
     if (!this._config.entities || this._config.entities.length === 0) return '';
+    const hideCalendarNames = !!this._config.hide_calendar_names;
 
     return `
       <div class="calendar-badges-container">
@@ -4219,13 +4255,13 @@ class SkylightCalendarCard extends HTMLElement {
             const badgeTextColor = isHidden ? '#9ca3af' : this.getContractColor(badgeBackground);
 
             return `
-              <div class="calendar-badge ${isHidden ? 'calendar-badge-hidden' : ''}"
+              <div class="calendar-badge ${isHidden ? 'calendar-badge-hidden' : ''} ${hideCalendarNames ? 'hide-calendar-name' : ''}"
                    data-entity="${entityId}"
                    style="background: ${badgeBackground};
                           border-color: ${isHidden ? '#d1d5db' : color};
                           cursor: pointer;">
                 ${this.renderCalendarBadgeIcon(entityId, name, color, isHidden)}
-                <span class="calendar-badge-name" style="color: ${badgeTextColor}">${this.escapeHtml(name)}</span>
+                ${hideCalendarNames ? '' : `<span class="calendar-badge-name" style="color: ${badgeTextColor}">${this.escapeHtml(name)}</span>`}
               </div>
             `;
           }).join('')}
@@ -8149,6 +8185,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
         <label><input type="checkbox" data-field="show_all_details_month" ${this._config.show_all_details_month ? 'checked' : ''}> Month view: show all details (week-compact style + override compact height)</label>
         <label><input type="checkbox" data-field="compact_header" ${this._config.compact_header ? 'checked' : ''}> Compact header</label>
         <label><input type="checkbox" data-field="hide_calendars" ${this._config.hide_calendars ? 'checked' : ''}> Hide calendar badges</label>
+        <label><input type="checkbox" data-field="hide_calendar_names" ${this._config.hide_calendar_names ? 'checked' : ''}> Header badges: hide calendar names</label>
         <label><input type="checkbox" data-field="hide_controls" ${this._config.hide_controls ? 'checked' : ''}> Hide header controls</label>
       </div>
       ${this._config.compact_height ? '' : `
