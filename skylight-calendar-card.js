@@ -3954,6 +3954,17 @@ class SkylightCalendarCard extends HTMLElement {
 
     const formatter = new Intl.DateTimeFormat(this.getLocale(), formatOptions);
 
+    if (!includeYear) {
+      if (startDate.getTime() === endDate.getTime()) {
+        return formatter.format(startDate);
+      }
+
+      // Intl.DateTimeFormat#formatRange may still add a year when dates cross
+      // year boundaries, even when year isn't requested in format options.
+      // Build the range manually so hide_year always hides the year.
+      return `${formatter.format(startDate)} - ${formatter.format(endDate)}`;
+    }
+
     if (typeof formatter.formatRange === 'function') {
       return formatter.formatRange(startDate, endDate);
     }
