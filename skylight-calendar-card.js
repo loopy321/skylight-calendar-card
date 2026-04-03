@@ -534,6 +534,8 @@ class SkylightCalendarCard extends HTMLElement {
     this._activeModalBackHandler = null;
     this._combinedEditTargets = null;
     this._combinedDeleteTargets = null;
+    this._pendingHeaderTimeSensorRender = false;
+    this._modalVisibilityObserver = null;
     this._handleViewportResize = () => {
       if (this.isEventManagementDialogOpen()) {
         return;
@@ -816,6 +818,9 @@ class SkylightCalendarCard extends HTMLElement {
       hide_calendar_names: config.hide_calendar_names || false, // Header calendar badges: show icons only
       hide_controls: config.hide_controls || false, // Hide header controls (add/view/theme/navigation)
       hide_dark_mode_toggle: config.hide_dark_mode_toggle || false, // Hide dark mode toggle from header controls
+      header_time_sensor: typeof config.header_time_sensor === 'string' && config.header_time_sensor.trim()
+        ? config.header_time_sensor.trim()
+        : null, // Optional sensor entity that provides a time value shown in header
       hide_event_calendar_bubble: config.hide_event_calendar_bubble || false, // Hide calendar initial bubble on events
       show_event_location: config.show_event_location || false, // Show event location in week and schedule views
       use_short_location: config.use_short_location || false, // Shorten event location text in month/week/schedule/agenda views
@@ -893,6 +898,20 @@ class SkylightCalendarCard extends HTMLElement {
         this._config.title = translate(this._activeLanguage, 'defaultTitle');
       }
       shouldRender = true;
+    }
+
+    const configuredHeaderTimeSensor = this._config?.header_time_sensor;
+    if (configuredHeaderTimeSensor) {
+      const previousHeaderSensorState = oldHass?.states?.[configuredHeaderTimeSensor]?.state;
+      const nextHeaderSensorState = hass?.states?.[configuredHeaderTimeSensor]?.state;
+      if (previousHeaderSensorState !== nextHeaderSensorState) {
+        if (this.isEventManagementDialogOpen()) {
+          this._pendingHeaderTimeSensorRender = true;
+        } else {
+          shouldRender = true;
+          this._pendingHeaderTimeSensorRender = false;
+        }
+      }
     }
 
     if (shouldRender) {
@@ -1459,6 +1478,10 @@ class SkylightCalendarCard extends HTMLElement {
     window.removeEventListener('resize', this._handleViewportResize);
     window.visualViewport?.removeEventListener('resize', this._handleViewportResize);
     this.detachSystemThemeListener();
+    if (this._modalVisibilityObserver) {
+      this._modalVisibilityObserver.disconnect();
+      this._modalVisibilityObserver = null;
+    }
   }
 
   getCompactMaxHeight(containerTopInViewport = null) {
@@ -1915,6 +1938,21 @@ class SkylightCalendarCard extends HTMLElement {
         font-size: 24px;
         font-weight: 600;
         margin: 0;
+      }
+
+      .header-title-wrap {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .header-time {
+        font-size: 28px;
+        font-weight: 500;
+        opacity: 0.95;
+        line-height: 1;
+        white-space: nowrap;
       }
 
       .add-event-button {
@@ -3734,6 +3772,10 @@ class SkylightCalendarCard extends HTMLElement {
         .form-group-inline .form-label {
           margin-bottom: 0;
         }
+
+        .header-time {
+          font-size: 22px;
+        }
       }
     `;
   }
@@ -3810,7 +3852,7 @@ class SkylightCalendarCard extends HTMLElement {
     return `
       <div class="header">
         <div class="header-left">
-          <h2 class="header-title">${this._config.title}</h2>
+          ${this.renderHeaderTitle()}
         </div>
         ${shouldShowControls ? `
           <div class="header-controls">
@@ -3838,7 +3880,7 @@ class SkylightCalendarCard extends HTMLElement {
     return `
       <div class="header header-compact">
         <div class="compact-header-left">
-          <h2 class="header-title">${this._config.title}</h2>
+          ${this.renderHeaderTitle()}
           ${shouldShowCalendars ? this.renderCalendarBadgesInline() : ''}
         </div>
         ${shouldShowControls ? `
@@ -3882,6 +3924,16 @@ class SkylightCalendarCard extends HTMLElement {
             </div>
           `;
         }).join('')}
+      </div>
+    `;
+  }
+
+  renderHeaderTitle() {
+    const headerTime = this.getFormattedHeaderSensorTime();
+    return `
+      <div class="header-title-wrap">
+        <h2 class="header-title">${this.escapeHtml(this._config.title || '')}</h2>
+        ${headerTime ? `<span class="header-time">${this.escapeHtml(headerTime)}</span>` : ''}
       </div>
     `;
   }
@@ -5424,6 +5476,7 @@ class SkylightCalendarCard extends HTMLElement {
     const themeToggleButton = this.getRootElementById('theme-toggle');
     const modal = this.getRootElementById('event-modal');
     const agendaContainer = this.getRootElementById('agenda-container');
+    this.observeModalVisibility(modal);
 
     // View mode selector
     const viewModeSelect = this.getRootElementById('view-mode-select');
@@ -5607,6 +5660,32 @@ class SkylightCalendarCard extends HTMLElement {
         }
       }
     });
+  }
+
+  observeModalVisibility(modal) {
+    if (this._modalVisibilityObserver) {
+      this._modalVisibilityObserver.disconnect();
+      this._modalVisibilityObserver = null;
+    }
+
+    if (!modal) return;
+
+    this._modalVisibilityObserver = new MutationObserver(() => {
+      if (!this.isEventManagementDialogOpen()) {
+        this.flushPendingHeaderTimeRender();
+      }
+    });
+
+    this._modalVisibilityObserver.observe(modal, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+  }
+
+  flushPendingHeaderTimeRender() {
+    if (!this._pendingHeaderTimeSensorRender) return;
+    this._pendingHeaderTimeSensorRender = false;
+    this.render();
   }
 
   navigateToPreviousPeriod() {
@@ -7630,6 +7709,49 @@ class SkylightCalendarCard extends HTMLElement {
     return new Intl.DateTimeFormat(this.getLocale(), { hour: 'numeric', minute: '2-digit' }).format(date);
   }
 
+  parseTimeValue(value) {
+    if (value === undefined || value === null) return null;
+    const raw = String(value).trim();
+    if (!raw || raw === 'unknown' || raw === 'unavailable') return null;
+
+    const dateCandidate = new Date(raw);
+    if (!Number.isNaN(dateCandidate.getTime())) {
+      return dateCandidate;
+    }
+
+    const timeMatch = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*([AaPp][Mm]))?$/);
+    if (!timeMatch) return null;
+
+    let hours = Number(timeMatch[1]);
+    const minutes = Number(timeMatch[2]);
+    const seconds = Number(timeMatch[3] || 0);
+    const meridiem = timeMatch[4] ? timeMatch[4].toLowerCase() : null;
+
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds)) return null;
+    if (minutes > 59 || seconds > 59) return null;
+
+    if (meridiem) {
+      if (hours < 1 || hours > 12) return null;
+      if (meridiem === 'pm' && hours !== 12) hours += 12;
+      if (meridiem === 'am' && hours === 12) hours = 0;
+    } else if (hours > 23) {
+      return null;
+    }
+
+    const parsed = new Date();
+    parsed.setHours(hours, minutes, seconds, 0);
+    return parsed;
+  }
+
+  getFormattedHeaderSensorTime() {
+    const sensorEntityId = this._config?.header_time_sensor;
+    if (!sensorEntityId) return '';
+    const sensorState = this._hass?.states?.[sensorEntityId]?.state;
+    const parsed = this.parseTimeValue(sensorState);
+    if (!parsed) return '';
+    return this.formatTime(parsed);
+  }
+
   formatDate(date) {
     return new Intl.DateTimeFormat(this.getLocale(), { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(date);
   }
@@ -8512,6 +8634,12 @@ class SkylightCalendarCardEditor extends HTMLElement {
           <input id="locale" data-field="locale" type="text" value="${this._config.locale || ''}" placeholder="en-US">
         </div>
       </div>
+      <div class="field-row">
+        <div class="field field-inline">
+          <label for="header_time_sensor">Header time sensor</label>
+          <input id="header_time_sensor" data-field="header_time_sensor" type="text" value="${this._config.header_time_sensor || ''}" placeholder="sensor.current_time">
+        </div>
+      </div>
       <div class="field field-inline">
         <label for="preference_storage_key">Preference storage key</label>
         <input id="preference_storage_key" data-field="preference_storage_key" type="text" value="${this._config.preference_storage_key || ''}" placeholder="Optional custom key">
@@ -9049,7 +9177,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
       checkbox.checked = this.getListFieldValue(listField).includes(checkbox.value);
     });
 
-    this.querySelectorAll('input[data-type="number"], input[data-type="nullable-number"], input[data-type="list"], input[data-field="language"], input[data-field="locale"], input[data-field="preference_storage_key"], input[data-field="background_image_url"], input[data-field="background_image_size"], input[data-field="background_image_position"], input[data-field="background_image_repeat"]').forEach((input) => {
+    this.querySelectorAll('input[data-type="number"], input[data-type="nullable-number"], input[data-type="list"], input[data-field="language"], input[data-field="locale"], input[data-field="header_time_sensor"], input[data-field="preference_storage_key"], input[data-field="background_image_url"], input[data-field="background_image_size"], input[data-field="background_image_position"], input[data-field="background_image_repeat"]').forEach((input) => {
       if (document.activeElement === input) return;
       const field = input.dataset.field;
       const type = input.dataset.type;
