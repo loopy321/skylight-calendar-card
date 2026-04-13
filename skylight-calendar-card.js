@@ -19,6 +19,7 @@ const TRANSLATIONS = {
       schedule: 'Schedule',
       agenda: 'Agenda',
       resetAgenda: 'Jump to Today',
+      openDashboard: 'Open dashboard',
       calendars: 'Calendars',
       calendar: 'Calendar',
       eventTitle: 'Event Title',
@@ -597,6 +598,21 @@ class SkylightCalendarCard extends HTMLElement {
     return `skylight-calendar-card:${dashboardScope}:${baseKey}`;
   }
 
+  normalizeDashboardPath(pathValue) {
+    if (typeof pathValue !== 'string') return null;
+    const trimmedPath = pathValue.trim();
+    if (!trimmedPath) return null;
+    return trimmedPath.startsWith('/') ? trimmedPath : `/${trimmedPath}`;
+  }
+
+  getConfiguredDashboardPath() {
+    return this.normalizeDashboardPath(this._config?.header_dashboard_path);
+  }
+
+  shouldShowDashboardNavButton() {
+    return !!(this._config?.show_dashboard_nav_button && this.getConfiguredDashboardPath());
+  }
+
   normalizeDefaultDarkMode(value) {
     if (value === true) return 'dark';
     if (value === false || value === undefined || value === null || value === '') return 'auto';
@@ -828,6 +844,8 @@ class SkylightCalendarCard extends HTMLElement {
       hide_calendar_names: config.hide_calendar_names || false, // Header calendar badges: show icons only
       hide_controls: config.hide_controls || false, // Hide header controls (add/view/theme/navigation)
       hide_dark_mode_toggle: config.hide_dark_mode_toggle || false, // Hide dark mode toggle from header controls
+      show_dashboard_nav_button: config.show_dashboard_nav_button || false, // Show square dashboard navigation button at header left
+      header_dashboard_path: this.normalizeDashboardPath(config.header_dashboard_path), // Dashboard path for optional header navigation button
       header_time_sensor: typeof config.header_time_sensor === 'string' && config.header_time_sensor.trim()
         ? config.header_time_sensor.trim()
         : null, // Optional sensor entity that provides a time value shown in header
@@ -870,6 +888,7 @@ class SkylightCalendarCard extends HTMLElement {
       background_opacity: normalizedBackgroundOpacity, // Re-apply normalization after spread for background opacity values
       background_transparent: normalizedBackgroundOpacity >= 100, // Re-apply legacy alias after spread
       event_title_prefix: normalizedEventTitlePrefix, // Re-apply normalization after spread for event title prefix
+      header_dashboard_path: this.normalizeDashboardPath(config.header_dashboard_path), // Re-apply normalization for dashboard path
       header_time_sensor: typeof config.header_time_sensor === 'string' && config.header_time_sensor.trim()
         ? config.header_time_sensor.trim()
         : null,
@@ -2117,6 +2136,27 @@ class SkylightCalendarCard extends HTMLElement {
         align-items: center;
         justify-content: center;
         transition: background 0.2s;
+      }
+
+      .dashboard-nav-button {
+        background: var(--header-control-bg, rgba(255, 255, 255, 0.2));
+        border: 1px solid var(--header-control-border, rgba(255, 255, 255, 0.4));
+        color: inherit;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.2s, border-color 0.2s;
+        line-height: 1;
+      }
+
+      .dashboard-nav-button:hover {
+        background: var(--header-control-bg-hover, rgba(255, 255, 255, 0.3));
+        border-color: var(--header-control-border-hover, rgba(255, 255, 255, 0.6));
       }
 
       .nav-button:hover {
@@ -3998,6 +4038,7 @@ class SkylightCalendarCard extends HTMLElement {
     return `
       <div class="header">
         <div class="header-left">
+          ${this.renderDashboardNavButton()}
           ${this.renderHeaderTitle()}
         </div>
         ${shouldShowControls ? `
@@ -4026,6 +4067,7 @@ class SkylightCalendarCard extends HTMLElement {
     return `
       <div class="header header-compact">
         <div class="compact-header-left">
+          ${this.renderDashboardNavButton()}
           ${this.renderHeaderTitle()}
           ${shouldShowCalendars ? this.renderCalendarBadgesInline() : ''}
         </div>
@@ -4084,6 +4126,11 @@ class SkylightCalendarCard extends HTMLElement {
         ${headerWeather ? `<span class="header-weather">${this.escapeHtml(headerWeather)}</span>` : ''}
       </div>
     `;
+  }
+
+  renderDashboardNavButton() {
+    if (!this.shouldShowDashboardNavButton()) return '';
+    return `<button class="dashboard-nav-button" id="header-dashboard-btn" aria-label="${this.t('openDashboard')}" title="${this.t('openDashboard')}">⌂</button>`;
   }
 
   renderViewModeButtons() {
@@ -5656,6 +5703,7 @@ class SkylightCalendarCard extends HTMLElement {
     const todayButton = this.getRootElementById('today');
     const addEventButton = this.getRootElementById('add-event-btn');
     const themeToggleButton = this.getRootElementById('theme-toggle');
+    const dashboardNavButton = this.getRootElementById('header-dashboard-btn');
     const modal = this.getRootElementById('event-modal');
     const agendaContainer = this.getRootElementById('agenda-container');
     this.observeModalVisibility(modal);
@@ -5701,6 +5749,8 @@ class SkylightCalendarCard extends HTMLElement {
       this.persistPreferences();
       this.render();
     });
+
+    dashboardNavButton?.addEventListener('click', () => this.navigateToConfiguredDashboard());
 
     prevButton?.addEventListener('click', () => this.navigateToPreviousPeriod());
     nextButton?.addEventListener('click', () => this.navigateToNextPeriod());
@@ -5904,6 +5954,19 @@ class SkylightCalendarCard extends HTMLElement {
       }
     }
     this.ensureEventsForCurrentRange({ renderIfCovered: true });
+  }
+
+  navigateToConfiguredDashboard() {
+    const dashboardPath = this.getConfiguredDashboardPath();
+    if (!dashboardPath) return;
+
+    if (this._hass && typeof this._hass.navigate === 'function') {
+      this._hass.navigate(dashboardPath);
+      return;
+    }
+
+    window.history.pushState(null, '', dashboardPath);
+    window.dispatchEvent(new Event('location-changed'));
   }
 
   navigateToNextPeriod() {
@@ -8293,6 +8356,8 @@ class SkylightCalendarCard extends HTMLElement {
       hide_year: false,
       hide_controls: false,
       hide_dark_mode_toggle: false,
+      show_dashboard_nav_button: false,
+      header_dashboard_path: null,
       header_weather_sensor: '',
       color_scheme: 'auto',
       enable_event_management: true
@@ -8327,6 +8392,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
     this._combineBackgroundMode = 'primary';
     this._combineBackgroundHexDraft = '';
     this._openDisclosureKeys = new Set();
+    this._dashboardOptions = [];
   }
 
   normalizeHexColor(colorValue) {
@@ -8388,7 +8454,8 @@ class SkylightCalendarCardEditor extends HTMLElement {
       ...SkylightCalendarCard.getStubConfig(),
       ...config,
       default_view: normalizedDefaultView || (SkylightCalendarCard.getStubConfig().default_view || 'month'),
-      color_scheme: SkylightCalendarCard.prototype.normalizeDefaultDarkMode(config.color_scheme)
+      color_scheme: SkylightCalendarCard.prototype.normalizeDefaultDarkMode(config.color_scheme),
+      header_dashboard_path: SkylightCalendarCard.prototype.normalizeDashboardPath(config.header_dashboard_path)
     };
     this.syncCombineBackgroundEditorState(this._config.combine_background);
 
@@ -8410,6 +8477,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._dashboardOptions = this.getDashboardOptionsForEditor();
 
     if (!this._rendered) {
       this.render();
@@ -8493,6 +8561,30 @@ class SkylightCalendarCardEditor extends HTMLElement {
 
   getEntityFriendlyName(entityId) {
     return this._hass?.states?.[entityId]?.attributes?.friendly_name || entityId;
+  }
+
+  getDashboardOptionsForEditor() {
+    const panels = this._hass?.panels || {};
+    const dashboards = Object.values(panels)
+      .filter((panel) => panel?.component_name === 'lovelace' && typeof panel.url_path === 'string' && panel.url_path.trim())
+      .map((panel) => {
+        const path = panel.url_path.startsWith('/') ? panel.url_path : `/${panel.url_path}`;
+        const title = panel.title || panel.config?.title || panel.url_path;
+        return { path, title };
+      });
+
+    const uniqueByPath = new Map();
+    dashboards.forEach((dashboard) => {
+      uniqueByPath.set(dashboard.path, dashboard);
+    });
+
+    const configuredPath = SkylightCalendarCard.prototype.normalizeDashboardPath(this._config.header_dashboard_path);
+    if (configuredPath && !uniqueByPath.has(configuredPath)) {
+      uniqueByPath.set(configuredPath, { path: configuredPath, title: configuredPath });
+    }
+
+    return Array.from(uniqueByPath.values())
+      .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }));
   }
 
   toColorInputValue(value, fallback = '#3f51b5') {
@@ -8884,7 +8976,21 @@ class SkylightCalendarCardEditor extends HTMLElement {
         <label><input type="checkbox" data-field="hide_calendars" ${this._config.hide_calendars ? 'checked' : ''}> Hide calendar badges</label>
         <label><input type="checkbox" data-field="hide_calendar_names" ${this._config.hide_calendar_names ? 'checked' : ''}> Header badges: hide calendar names</label>
         <label><input type="checkbox" data-field="hide_controls" ${this._config.hide_controls ? 'checked' : ''}> Hide header controls</label>
+        <label><input type="checkbox" data-field="show_dashboard_nav_button" ${this._config.show_dashboard_nav_button ? 'checked' : ''}> Show left dashboard navigation button</label>
       </div>
+      ${this._config.show_dashboard_nav_button ? `
+      <div class="field-row">
+        <div class="field field-inline">
+          <label for="header_dashboard_path">Dashboard target</label>
+          <select id="header_dashboard_path" data-field="header_dashboard_path">
+            <option value="">Select a dashboard</option>
+            ${this._dashboardOptions.map((dashboard) => `
+              <option value="${this.escapeHtml(dashboard.path)}" ${this._config.header_dashboard_path === dashboard.path ? 'selected' : ''}>${this.escapeHtml(dashboard.title)}</option>
+            `).join('')}
+          </select>
+        </div>
+      </div>
+      ` : ''}
       ${this._config.compact_height ? '' : `
         <div class="field">
           <label for="height_scale">Height scale</label>
@@ -9797,7 +9903,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
       if (field === 'background_transparent') {
         nextConfig.background_opacity = event.target.checked ? 100 : 0;
       }
-      if (field === 'compact_height' || field === 'combine_calendars') {
+      if (field === 'compact_height' || field === 'combine_calendars' || field === 'show_dashboard_nav_button') {
         this._config = nextConfig;
         this.render();
         this.dispatchEvent(
