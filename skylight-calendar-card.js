@@ -2386,6 +2386,7 @@ class SkylightCalendarCard extends HTMLElement {
         justify-content: center;
         gap: 10px;
         margin-top: 2px;
+		min-height: 32px;
       }
 
       .week-day-forecast,
