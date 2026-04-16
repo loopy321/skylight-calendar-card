@@ -627,10 +627,26 @@ class SkylightCalendarCard extends HTMLElement {
 
   normalizeEventTitlePrefixMode(value) {
     const normalizedValue = String(value ?? '').trim().toLowerCase();
+    if (['icon', 'badge', 'badgeicon'].includes(normalizedValue)) {
+      return 'badge_icon';
+    }
+    if (['friendly', 'friendlyname'].includes(normalizedValue)) {
+      return 'friendly_name';
+    }
     if (['friendly_name', 'badge_icon', 'none'].includes(normalizedValue)) {
       return normalizedValue;
     }
     return 'none';
+  }
+
+  normalizeBooleanStyleValue(value) {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+      const normalizedValue = value.trim().toLowerCase();
+      if (normalizedValue === 'true') return true;
+      if (normalizedValue === 'false') return false;
+    }
+    return null;
   }
 
   applyThemeMode(mode = this._themeMode) {
@@ -798,6 +814,7 @@ class SkylightCalendarCard extends HTMLElement {
 
     const normalizedCalendarColors = this.normalizeColorMap(config.colors || {});
     const normalizedEventFontColors = this.normalizeColorMap(config.event_font_colors || {});
+    const normalizedEventStyles = this.normalizeEventStyles(config.event_styles || []);
     const normalizedHeaderColor = this.normalizeSingleColor(config.header_color);
     const normalizedHeaderTextColor = this.normalizeSingleColor(config.header_text_color);
     const hasConfiguredBackgroundOpacity = config.background_opacity !== undefined && config.background_opacity !== null && config.background_opacity !== '';
@@ -861,6 +878,7 @@ class SkylightCalendarCard extends HTMLElement {
       event_calendar_friendly_name: config.event_calendar_friendly_name || false, // Show friendly calendar name in event bubble area instead of icon
       event_title_prefix: normalizedEventTitlePrefix, // Prefix event titles with calendar friendly name or badge icon
       event_font_colors: normalizedEventFontColors, // Per-calendar font colors for event bubble text
+      event_styles: normalizedEventStyles, // Per-event styling rules with match logic
       hide_times_for_calendars: config.hide_times_for_calendars || [], // Hide times in schedule view for specific calendars
       show_current_time_bar: config.show_current_time_bar || false, // Show a "now" indicator in schedule view
       use_24hr_schedule: config.use_24hr_schedule ?? false, // Use 24-hour time notation in schedule view
@@ -894,7 +912,8 @@ class SkylightCalendarCard extends HTMLElement {
         : null,
       header_weather_sensor: typeof config.header_weather_sensor === 'string' && config.header_weather_sensor.trim()
         ? config.header_weather_sensor.trim()
-        : null
+        : null,
+      event_styles: normalizedEventStyles
     };
     this._viewMode = this._config.default_view;
     this.applyThemeMode(this._config.color_scheme);
@@ -1118,6 +1137,201 @@ class SkylightCalendarCard extends HTMLElement {
 
     const hex = this.colorToHex(normalized);
     return hex || 'primary';
+  }
+
+  normalizeEventStyles(rawRules) {
+    if (!Array.isArray(rawRules)) return [];
+
+    return rawRules
+      .map((rule, index) => {
+        if (!rule || typeof rule !== 'object') return null;
+
+        const match = rule.match && typeof rule.match === 'object' ? rule.match : null;
+        const style = rule.style && typeof rule.style === 'object' ? rule.style : null;
+        if (!match || !style) return null;
+
+        const numericPriority = Number(rule.priority);
+        const priority = Number.isFinite(numericPriority) ? numericPriority : 0;
+
+        return {
+          id: typeof rule.id === 'string' && rule.id.trim() ? rule.id.trim() : `event-style-${index + 1}`,
+          priority,
+          match,
+          style: this.normalizeEventStyleBlock(style),
+          index
+        };
+      })
+      .filter(Boolean);
+  }
+
+  normalizeEventStyleBlock(style = {}) {
+    const normalized = {};
+    const setIfDefined = (key, value) => {
+      if (value !== undefined && value !== null && value !== '') {
+        normalized[key] = value;
+      }
+    };
+
+    const normalizedBackground = this.normalizeSingleColor(style.background_color ?? style.color);
+    if (normalizedBackground) normalized.background_color = normalizedBackground;
+
+    const normalizedFontColor = this.normalizeSingleColor(style.event_font_color ?? style.font_color);
+    if (normalizedFontColor) normalized.event_font_color = normalizedFontColor;
+
+    setIfDefined('event_font_size', style.event_font_size);
+    setIfDefined('event_time_font_size', style.event_time_font_size);
+    setIfDefined('event_location_font_size', style.event_location_font_size);
+
+    const showEventLocation = this.normalizeBooleanStyleValue(style.show_event_location);
+    if (showEventLocation !== null) normalized.show_event_location = showEventLocation;
+    const useShortLocation = this.normalizeBooleanStyleValue(style.use_short_location);
+    if (useShortLocation !== null) normalized.use_short_location = useShortLocation;
+    const hideTime = this.normalizeBooleanStyleValue(style.hide_time);
+    if (hideTime !== null) normalized.hide_time = hideTime;
+    const showTime = this.normalizeBooleanStyleValue(style.show_time);
+    if (showTime !== null) normalized.show_time = showTime;
+    const hideCalendarBubble = this.normalizeBooleanStyleValue(style.hide_event_calendar_bubble);
+    if (hideCalendarBubble !== null) normalized.hide_event_calendar_bubble = hideCalendarBubble;
+    if (style.event_title_prefix !== undefined) normalized.event_title_prefix = this.normalizeEventTitlePrefixMode(style.event_title_prefix);
+
+    return normalized;
+  }
+
+  eventMatchesRule(event, match) {
+    if (!match || typeof match !== 'object') return false;
+
+    const logicalKeys = new Set(['any', 'all', 'and', 'not']);
+    const fieldKeys = Object.keys(match).filter((key) => !logicalKeys.has(key));
+    const fieldsPass = fieldKeys.every((field) => this.eventFieldMatches(event, field, match[field]));
+
+    if (!fieldsPass) return false;
+
+    const allConditions = Array.isArray(match.all) ? match.all : [];
+    if (!allConditions.every((condition) => this.eventMatchesRule(event, condition))) return false;
+
+    const andConditions = Array.isArray(match.and) ? match.and : [];
+    if (!andConditions.every((condition) => this.eventMatchesRule(event, condition))) return false;
+
+    if (Object.prototype.hasOwnProperty.call(match, 'any')) {
+      const anyConditions = Array.isArray(match.any) ? match.any : [];
+      if (!anyConditions.some((condition) => this.eventMatchesRule(event, condition))) return false;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(match, 'not')) {
+      const notCondition = match.not;
+      if (Array.isArray(notCondition)) {
+        if (notCondition.some((condition) => this.eventMatchesRule(event, condition))) return false;
+      } else if (notCondition && this.eventMatchesRule(event, notCondition)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  eventFieldMatches(event, field, condition) {
+    const fieldName = String(field || '').trim().toLowerCase();
+    if (!fieldName) return false;
+
+    if (fieldName === 'all_day') {
+      const { isAllDay } = this.getEventDateTimeInfo(event);
+      return this.matchPrimitiveCondition(isAllDay, condition);
+    }
+
+    if (fieldName === 'calendar') {
+      const calendarName = this.getCalendarName(event.entityId);
+      return this.matchTextCondition(event.entityId, condition) || this.matchTextCondition(calendarName, condition);
+    }
+
+    const valueByField = {
+      title: event.summary,
+      summary: event.summary,
+      location: event.location,
+      description: event.description
+    };
+    return this.matchTextCondition(valueByField[fieldName], condition);
+  }
+
+  matchPrimitiveCondition(value, condition) {
+    if (typeof condition === 'boolean') {
+      return value === condition;
+    }
+
+    if (typeof condition === 'string') {
+      const normalized = condition.trim().toLowerCase();
+      if (normalized === 'true') return value === true;
+      if (normalized === 'false') return value === false;
+    }
+
+    return value === condition;
+  }
+
+  parseRegexCondition(value) {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const prefixed = trimmed.match(/^regex:(.+)$/i);
+    if (prefixed) {
+      try {
+        return new RegExp(prefixed[1].trim(), 'i');
+      } catch (error) {
+        return null;
+      }
+    }
+
+    const slashDelimited = trimmed.match(/^\/(.+)\/([dgimsuvy]*)$/);
+    if (!slashDelimited) return null;
+
+    try {
+      return new RegExp(slashDelimited[1], slashDelimited[2] || 'i');
+    } catch (error) {
+      return null;
+    }
+  }
+
+  matchTextCondition(value, condition) {
+    const rawNormalizedValue = this.normalizeEventTextValue(value);
+    if (!rawNormalizedValue) return false;
+    const normalizedValue = rawNormalizedValue.toLowerCase();
+
+    if (typeof condition === 'string') {
+      const regex = this.parseRegexCondition(condition);
+      if (regex) return regex.test(rawNormalizedValue);
+
+      const normalizedCondition = condition.trim();
+      if (!normalizedCondition) return false;
+
+      const exactMatch = normalizedCondition.match(/^exact:(.+)$/i);
+      if (exactMatch) {
+        return normalizedValue === exactMatch[1].trim().toLowerCase();
+      }
+
+      const containsMatch = normalizedCondition.match(/^(?:contains|substring):(.+)$/i);
+      if (containsMatch) {
+        return normalizedValue.includes(containsMatch[1].trim().toLowerCase());
+      }
+
+      return normalizedValue.includes(normalizedCondition.toLowerCase());
+    }
+
+    if (condition && typeof condition === 'object' && !Array.isArray(condition)) {
+      if (typeof condition.exact === 'string') {
+        return normalizedValue === condition.exact.trim().toLowerCase();
+      }
+      if (typeof condition.substring === 'string') {
+        return normalizedValue.includes(condition.substring.trim().toLowerCase());
+      }
+      if (typeof condition.contains === 'string') {
+        return normalizedValue.includes(condition.contains.trim().toLowerCase());
+      }
+      if (typeof condition.regex === 'string') {
+        const regex = this.parseRegexCondition(`regex:${condition.regex}`);
+        return !!regex && regex.test(rawNormalizedValue);
+      }
+    }
+
+    return false;
   }
 
   getWritableCalendars() {
@@ -2356,6 +2570,8 @@ class SkylightCalendarCard extends HTMLElement {
         cursor: pointer;
         transition: transform 0.2s, box-shadow 0.2s;
         font-weight: 500;
+        position: relative;
+        padding-bottom: calc(4px + (var(--combined-corner-bubbles, 0) * 14px));
       }
 
       .event:hover {
@@ -2489,6 +2705,8 @@ class SkylightCalendarCard extends HTMLElement {
         margin-bottom: 8px;
         cursor: pointer;
         transition: transform 0.2s, box-shadow 0.2s;
+        position: relative;
+        padding-bottom: calc(8px + (var(--combined-corner-bubbles, 0) * 14px));
       }
 
       .week-compact-event:hover {
@@ -2651,6 +2869,7 @@ class SkylightCalendarCard extends HTMLElement {
         position: relative;
         height: var(--agenda-event-min-height, 68px);
         box-sizing: border-box;
+        padding-bottom: calc(10px + (var(--combined-corner-bubbles, 0) * 16px));
       }
 
       .agenda-event-time {
@@ -3058,6 +3277,7 @@ class SkylightCalendarCard extends HTMLElement {
         z-index: 1;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         box-sizing: border-box;
+        padding-bottom: calc(4px + (var(--combined-corner-bubbles, 0) * 14px));
       }
 
       .week-standard-event:hover {
@@ -3114,6 +3334,30 @@ class SkylightCalendarCard extends HTMLElement {
         justify-content: center;
         font-size: 10px;
         flex-shrink: 0;
+      }
+
+      .combined-corner-bubbles {
+        position: absolute;
+        right: 6px;
+        bottom: 4px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 2px;
+        pointer-events: none;
+      }
+
+      .combined-corner-bubble {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 8px;
+        font-weight: 700;
+        line-height: 1;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
       }
 
       .current-time-line {
@@ -3606,6 +3850,9 @@ class SkylightCalendarCard extends HTMLElement {
         padding: 12px;
         border-radius: 4px;
         cursor: pointer;
+        color: var(--event-bubble-text-color, white);
+        position: relative;
+        padding-bottom: calc(12px + (var(--combined-corner-bubbles, 0) * 16px));
       }
 
       .day-modal-event-title {
@@ -3615,12 +3862,14 @@ class SkylightCalendarCard extends HTMLElement {
 
       .day-modal-event-meta {
         font-size: 13px;
-        color: #6b7280;
+        color: inherit;
+        opacity: 0.9;
       }
 
       .day-modal-event-location {
         font-size: 13px;
-        color: #6b7280;
+        color: inherit;
+        opacity: 0.9;
         margin-top: 4px;
       }
 
@@ -4422,13 +4671,17 @@ class SkylightCalendarCard extends HTMLElement {
                 ? this.t('allDay')
                 : `${this.formatTime(segmentStart)} - ${this.formatTime(segmentEnd)}`;
               const eventStyle = this.getEventStyle(event);
+              const eventAgendaMinHeight = this.shouldShowCombinedCornerBubbles(event)
+                ? `calc(${agendaEventMinHeight} + 16px)`
+                : agendaEventMinHeight;
 
               return `
-                <div class="agenda-event" style="${eventStyle} --agenda-event-min-height: ${agendaEventMinHeight}; --event-bubble-font-size: ${this.getEventBubbleFontSize()}; --event-time-font-size: ${this.getEventTimeFontSize()}; --event-location-font-size: ${this.getEventLocationFontSize()}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
+                <div class="agenda-event" style="${eventStyle} --agenda-event-min-height: ${eventAgendaMinHeight}; --event-bubble-font-size: ${this.getEventBubbleFontSize(event)}; --event-time-font-size: ${this.getEventTimeFontSize(event)}; --event-location-font-size: ${this.getEventLocationFontSize(event)}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
                   ${this.shouldShowEventTime(event) ? `<div class="agenda-event-time">${timeLabel}</div>` : ''}
                   <div class="agenda-event-title">${this.renderEventTitleWithPrefix(event, event.summary || this.t('untitledEvent'))}</div>
-                  ${this.shouldShowEventLocation(event) ? `<div class="agenda-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location))}</div>` : ''}
+                  ${this.shouldShowEventLocation(event) ? `<div class="agenda-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location, event))}</div>` : ''}
                   ${this.renderEventIcon(event)}
+                  ${this.renderCombinedCornerBubbles(event)}
                 </div>
               `;
             }).join('')}
@@ -4655,7 +4908,7 @@ class SkylightCalendarCard extends HTMLElement {
           const eventStyle = this.getEventStyle(event, { withBorderAccent: false });
           return `
             <div class="all-day-event ${continuesFromPreviousDay ? 'continues-prev' : ''} ${continuesToNextDay ? 'continues-next' : ''} ${bridgeFromPreviousDay ? 'bridge-prev' : ''} ${bridgeToNextDay ? 'bridge-next' : ''} ${showTitle && visibleDaySpan > 1 ? 'leading-span-title' : ''}"
-                 style="${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize()}; --event-time-font-size: ${this.getEventTimeFontSize()}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)}; --all-day-title-span-days: ${visibleDaySpan}; --all-day-title-gap-count: ${Math.max(visibleDaySpan - 1, 0)};"
+                 style="${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize(event)}; --event-time-font-size: ${this.getEventTimeFontSize(event)}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)}; --all-day-title-span-days: ${visibleDaySpan}; --all-day-title-gap-count: ${Math.max(visibleDaySpan - 1, 0)};"
                  data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
               <div class="all-day-event-title ${showTitle && visibleDaySpan > 1 ? 'spans-multiple-days' : ''}">${showTitle ? this.renderEventTitleWithPrefix(event, displayTitle || event.summary || this.t('untitledEvent')) : ''}</div>
             </div>
@@ -4764,7 +5017,8 @@ class SkylightCalendarCard extends HTMLElement {
 
       const duration = clampedEndHour - clampedStartHour;
       const top = (clampedStartHour - startHour) * hourHeight;
-      const height = duration * hourHeight;
+      const extraHeightForCombinedBubbles = this.shouldShowCombinedCornerBubbles(event) ? 16 : 0;
+      const height = (duration * hourHeight) + extraHeightForCombinedBubbles;
 
       const clusterColumns = block.clusterColumns || 1;
       // Calculate width and position for concurrent events
@@ -4775,12 +5029,13 @@ class SkylightCalendarCard extends HTMLElement {
 
       return `
         <div class="week-standard-event"
-             style="top: ${top}px; height: ${height}px; width: ${width}; left: ${left}; ${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize()}; --event-time-font-size: ${this.getEventTimeFontSize()}; --event-location-font-size: ${this.getEventLocationFontSize()}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};"
+             style="top: ${top}px; height: ${height}px; width: ${width}; left: ${left}; ${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize(event)}; --event-time-font-size: ${this.getEventTimeFontSize(event)}; --event-location-font-size: ${this.getEventLocationFontSize(event)}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};"
              data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
           <div class="week-standard-event-title">${this.renderEventTitleWithPrefix(event, displayTitle || event.summary || this.t('untitledEvent'))}</div>
           ${this.shouldShowEventTime(event) ? `<div class="week-standard-event-time">${this.formatScheduleTime(eventStart)} - ${this.formatScheduleTime(eventEnd)}</div>` : ''}
-          ${this.shouldShowEventLocation(event) ? `<div class="week-standard-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location))}</div>` : ''}
+          ${this.shouldShowEventLocation(event) ? `<div class="week-standard-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location, event))}</div>` : ''}
           ${this.renderEventIcon(event)}
+          ${this.renderCombinedCornerBubbles(event)}
         </div>
       `;
     }).join('');
@@ -4809,7 +5064,15 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   renderEventIcon(event) {
-    if (this._config.event_calendar_friendly_name) {
+    if (this.shouldShowCombinedCornerBubbles(event)) {
+      return '';
+    }
+
+    const styleOverrides = this.getEventStyleOverrides(event);
+    const useFriendlyName = this._config.event_calendar_friendly_name;
+    const hideCalendarBubble = styleOverrides?.hide_event_calendar_bubble ?? this._config.hide_event_calendar_bubble;
+
+    if (useFriendlyName) {
       const visibleBadges = this.getVisibleCalendarBadgesForEvent(event);
       if (visibleBadges.length === 0) {
         return '';
@@ -4822,7 +5085,7 @@ class SkylightCalendarCard extends HTMLElement {
       return `<div class="week-standard-event-icons">${namesHtml}</div>`;
     }
 
-    if (this._config.hide_event_calendar_bubble) {
+    if (hideCalendarBubble) {
       return '';
     }
 
@@ -4840,9 +5103,31 @@ class SkylightCalendarCard extends HTMLElement {
     return `<div class="week-standard-event-icons">${badgesHtml}</div>`;
   }
 
+  shouldShowCombinedCornerBubbles(event) {
+    if (!event?.isCombinedCalendarEvent || !this._config.combine_calendars) return false;
+    const styleOverrides = this.getEventStyleOverrides(event);
+    return !!styleOverrides?.hasDuplicateBackgroundColors;
+  }
+
+  renderCombinedCornerBubbles(event) {
+    if (!this.shouldShowCombinedCornerBubbles(event)) return '';
+
+    const visibleBadges = this.getVisibleCalendarBadgesForEvent(event);
+    if (visibleBadges.length <= 1) return '';
+
+    const bubblesHtml = visibleBadges.map((calendar) => {
+      const name = this.getCalendarName(calendar.entityId);
+      const initial = name.charAt(0).toUpperCase();
+      return `<span class="combined-corner-bubble" style="background: ${calendar.color}; color: white;" title="${this.escapeHtml(name)}">${this.escapeHtml(initial)}</span>`;
+    }).join('');
+
+    return `<div class="combined-corner-bubbles">${bubblesHtml}</div>`;
+  }
+
   renderEventTitleWithPrefix(event, title) {
     const titleText = this.escapeHtml(title || this.t('untitledEvent'));
-    const prefixMode = this.normalizeEventTitlePrefixMode(this._config.event_title_prefix);
+    const styleOverrides = this.getEventStyleOverrides(event);
+    const prefixMode = this.normalizeEventTitlePrefixMode(styleOverrides?.event_title_prefix ?? this._config.event_title_prefix);
     const visibleBadges = this.getVisibleCalendarBadgesForEvent(event);
     if (prefixMode === 'none' || visibleBadges.length === 0) {
       return titleText;
@@ -4891,8 +5176,9 @@ class SkylightCalendarCard extends HTMLElement {
     return `rgb(${nr}, ${ng}, ${nb})`;
   }
 
-  getEventBubbleFontSize() {
-    const configuredSize = this._config?.event_font_size;
+  getEventBubbleFontSize(event = null) {
+    const styleOverrides = event ? this.getEventStyleOverrides(event) : null;
+    const configuredSize = styleOverrides?.event_font_size ?? this._config?.event_font_size;
     if (configuredSize === undefined || configuredSize === null || configuredSize === '') {
       return '11px';
     }
@@ -4906,8 +5192,9 @@ class SkylightCalendarCard extends HTMLElement {
     return /^\d+(\.\d+)?$/.test(normalized) ? `${normalized}px` : normalized;
   }
 
-  getEventTimeFontSize() {
-    const configuredSize = this._config?.event_time_font_size;
+  getEventTimeFontSize(event = null) {
+    const styleOverrides = event ? this.getEventStyleOverrides(event) : null;
+    const configuredSize = styleOverrides?.event_time_font_size ?? this._config?.event_time_font_size;
     if (configuredSize === undefined || configuredSize === null || configuredSize === '') {
       return '9px';
     }
@@ -4921,8 +5208,9 @@ class SkylightCalendarCard extends HTMLElement {
     return /^\d+(\.\d+)?$/.test(normalized) ? `${normalized}px` : normalized;
   }
 
-  getEventLocationFontSize() {
-    const configuredSize = this._config?.event_location_font_size;
+  getEventLocationFontSize(event = null) {
+    const styleOverrides = event ? this.getEventStyleOverrides(event) : null;
+    const configuredSize = styleOverrides?.event_location_font_size ?? this._config?.event_location_font_size;
     if (configuredSize === undefined || configuredSize === null || configuredSize === '') {
       return '9px';
     }
@@ -4937,13 +5225,17 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   shouldShowEventLocation(event) {
-    return !!(this._config.show_event_location && event?.location);
+    const styleOverrides = this.getEventStyleOverrides(event);
+    const showLocation = styleOverrides?.show_event_location ?? this._config.show_event_location;
+    return !!(showLocation && event?.location);
   }
 
-  getDisplayLocation(location) {
+  getDisplayLocation(location, event = null) {
     const normalizedLocation = this.normalizeEventTextValue(location);
     if (!normalizedLocation) return '';
-    if (!this._config?.use_short_location) return normalizedLocation;
+    const styleOverrides = event ? this.getEventStyleOverrides(event) : null;
+    const shouldShorten = styleOverrides?.use_short_location ?? this._config?.use_short_location;
+    if (!shouldShorten) return normalizedLocation;
 
     const numberMatch = normalizedLocation.match(/\b\d+[A-Za-z0-9-]*\b/);
     if (!numberMatch) {
@@ -4989,6 +5281,10 @@ class SkylightCalendarCard extends HTMLElement {
 
   getEventBubbleFontColor(event) {
     if (!event) return 'white';
+    const styleOverrides = this.getEventStyleOverrides(event);
+    if (styleOverrides?.event_font_color) {
+      return styleOverrides.event_font_color;
+    }
 
     const visibleEntityIds = event.isCombinedCalendarEvent && Array.isArray(event.sourceEntityIds)
       ? event.sourceEntityIds.filter(entityId => !this._hiddenCalendars.has(entityId))
@@ -5007,6 +5303,9 @@ class SkylightCalendarCard extends HTMLElement {
 
   shouldShowEventTime(event) {
     if (!event) return true;
+    const styleOverrides = this.getEventStyleOverrides(event);
+    if (styleOverrides?.hide_time === true) return false;
+    if (styleOverrides?.show_time === true) return true;
 
     const visibleEntityIds = event.isCombinedCalendarEvent && Array.isArray(event.sourceEntityIds)
       ? event.sourceEntityIds.filter(entityId => !this._hiddenCalendars.has(entityId))
@@ -5296,10 +5595,11 @@ class SkylightCalendarCard extends HTMLElement {
     const eventStyle = this.getEventStyle(event);
 
     return `
-      <div class="week-compact-event" style="${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize()}; --event-time-font-size: ${this.getEventTimeFontSize()}; --event-location-font-size: ${this.getEventLocationFontSize()}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
+      <div class="week-compact-event" style="${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize(event)}; --event-time-font-size: ${this.getEventTimeFontSize(event)}; --event-location-font-size: ${this.getEventLocationFontSize(event)}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
         <div class="week-compact-event-time">${timeLabel}</div>
         <div class="week-compact-event-title">${this.renderEventTitleWithPrefix(event, event.summary || this.t('untitledEvent'))}</div>
-        ${this.shouldShowEventLocation(event) ? `<div class="week-compact-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location))}</div>` : ''}
+        ${this.shouldShowEventLocation(event) ? `<div class="week-compact-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location, event))}</div>` : ''}
+        ${this.renderCombinedCornerBubbles(event)}
       </div>
     `;
   }
@@ -5311,9 +5611,10 @@ class SkylightCalendarCard extends HTMLElement {
     const eventStyle = this.getEventStyle(event);
 
     return `
-      <div class="event" style="${eventStyle}; --event-bubble-font-size: ${this.getEventBubbleFontSize()}; --event-time-font-size: ${this.getEventTimeFontSize()}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
+      <div class="event" style="${eventStyle}; --event-bubble-font-size: ${this.getEventBubbleFontSize(event)}; --event-time-font-size: ${this.getEventTimeFontSize(event)}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
         ${!isAllDaySegment ? `<span class="event-time">${this.formatTime(segmentStart)}</span>` : ''}
         ${this.renderEventTitleWithPrefix(event, event.summary || this.t('untitledEvent'))}
+        ${this.renderCombinedCornerBubbles(event)}
       </div>
     `;
   }
@@ -5434,6 +5735,11 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   getVisibleCalendarColorsForEvent(event) {
+    const backgroundColors = this.getEventStyleOverrides(event)?.backgroundColors || [];
+    if (backgroundColors.length > 0) {
+      return backgroundColors;
+    }
+
     if (event.isCombinedCalendarEvent && Array.isArray(event.sourceCalendars)) {
       return event.sourceCalendars
         .filter(calendar => !this._hiddenCalendars.has(calendar.entityId))
@@ -5445,6 +5751,79 @@ class SkylightCalendarCard extends HTMLElement {
     }
 
     return [event.color];
+  }
+
+  getMatchedEventStyleRules(event) {
+    const configuredRules = Array.isArray(this._config?.event_styles) ? this._config.event_styles : [];
+    if (configuredRules.length === 0) return [];
+    return configuredRules.filter((rule) => this.eventMatchesRule(event, rule.match));
+  }
+
+  getSingleEventStyleCandidates(event) {
+    const rules = this.getMatchedEventStyleRules(event);
+    const candidates = {};
+
+    rules.forEach((rule) => {
+      Object.entries(rule.style || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        const existing = candidates[key];
+        if (!existing || rule.priority > existing.priority || (rule.priority === existing.priority && rule.index < existing.index)) {
+          candidates[key] = { value, priority: rule.priority, ruleIndex: rule.index };
+        }
+      });
+    });
+
+    return candidates;
+  }
+
+  getEventStyleOverrides(event) {
+    if (!event) return null;
+
+    if (event.isCombinedCalendarEvent && Array.isArray(event.sourceEvents)) {
+      const visibleSources = event.sourceEvents.filter((sourceEvent) => !this._hiddenCalendars.has(sourceEvent.entityId));
+      if (visibleSources.length === 0) return null;
+
+      const sourceCandidates = visibleSources.map((sourceEvent, sourceIndex) => ({
+        sourceEvent,
+        sourceIndex,
+        candidates: this.getSingleEventStyleCandidates(sourceEvent)
+      }));
+
+      const backgroundColors = sourceCandidates.map(({ sourceEvent, candidates }) =>
+        candidates.background_color?.value || sourceEvent.color
+      );
+      const uniqueBackgroundCount = new Set(backgroundColors).size;
+      const hasDuplicateBackgroundColors = uniqueBackgroundCount !== backgroundColors.length;
+
+      const mergedOverrides = {};
+      const allStyleKeys = new Set(sourceCandidates.flatMap(({ candidates }) => Object.keys(candidates)));
+      allStyleKeys.delete('background_color');
+
+      allStyleKeys.forEach((styleKey) => {
+        let best = null;
+        sourceCandidates.forEach(({ candidates, sourceIndex }) => {
+          const candidate = candidates[styleKey];
+          if (!candidate) return;
+          const candidatePriority = Number.isFinite(candidate.priority) ? candidate.priority : 0;
+          if (!best || candidatePriority > best.priority || (candidatePriority === best.priority && sourceIndex < best.sourceIndex)) {
+            best = { ...candidate, priority: candidatePriority, sourceIndex };
+          }
+        });
+
+        if (best) mergedOverrides[styleKey] = best.value;
+      });
+
+      return { ...mergedOverrides, backgroundColors, hasDuplicateBackgroundColors };
+    }
+
+    const candidates = this.getSingleEventStyleCandidates(event);
+    const overrides = Object.entries(candidates).reduce((acc, [key, meta]) => {
+      acc[key] = meta.value;
+      return acc;
+    }, {});
+    overrides.backgroundColors = [overrides.background_color || event.color];
+    overrides.hasDuplicateBackgroundColors = false;
+    return overrides;
   }
 
   createZebraStripeGradient(colors) {
@@ -5521,7 +5900,8 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   getEventStyle(event, { withBorderAccent = false } = {}) {
-    const visibleColors = this.getVisibleCalendarColorsForEvent(event);
+    const styleOverrides = this.getEventStyleOverrides(event);
+    const visibleColors = styleOverrides?.backgroundColors?.length ? styleOverrides.backgroundColors : this.getVisibleCalendarColorsForEvent(event);
     const primaryColor = visibleColors[0] || event.color;
 
     const shouldShowBorderAccent = withBorderAccent && visibleColors.length <= 1;
@@ -5540,21 +5920,22 @@ class SkylightCalendarCard extends HTMLElement {
       ? Number(this._config.combine_calendars_width)
       : 12;
     const indicatorColors = this.getIndicatorColors(visibleColors, combineStyle, combineBackgroundOption);
+    const shouldShowCornerBadges = !!styleOverrides?.hasDuplicateBackgroundColors;
 
     if (combineStyle === 'bars') {
       const barsGradient = indicatorColors.length > 0 ? this.createVerticalBarsGradient(indicatorColors) : 'none';
       const leftOffset = indicatorColors.length > 0 ? `--combine-left-offset: ${indicatorWidth}px;` : '--combine-left-offset: 0px;';
-      return `${leftOffset} background-color: ${backgroundColor}; background-image: ${barsGradient}; background-size: ${indicatorWidth}px 100%; background-position: left top; background-repeat: no-repeat; background-clip: padding-box; ${borderStyle}`;
+      return `${leftOffset} background-color: ${backgroundColor}; background-image: ${barsGradient}; background-size: ${indicatorWidth}px 100%; background-position: left top; background-repeat: no-repeat; background-clip: padding-box; ${shouldShowCornerBadges ? '--combined-corner-bubbles: 1;' : ''} ${borderStyle}`;
     }
 
     if (combineStyle === 'dots') {
       const dots = indicatorColors.length > 0 ? this.createDotsDecoration(indicatorColors, indicatorWidth) : 'none';
       const leftOffset = indicatorColors.length > 0 ? `--combine-left-offset: ${indicatorWidth}px;` : '--combine-left-offset: 0px;';
-      return `${leftOffset} background-color: ${backgroundColor}; background-image: ${dots}; background-repeat: no-repeat; background-clip: padding-box; ${borderStyle}`;
+      return `${leftOffset} background-color: ${backgroundColor}; background-image: ${dots}; background-repeat: no-repeat; background-clip: padding-box; ${shouldShowCornerBadges ? '--combined-corner-bubbles: 1;' : ''} ${borderStyle}`;
     }
 
     const stripeGradient = this.createZebraStripeGradient(visibleColors);
-    return `--combine-left-offset: 0px; background-color: ${backgroundColor}; background-image: ${stripeGradient}; background-clip: padding-box; ${borderStyle}`;
+    return `--combine-left-offset: 0px; background-color: ${backgroundColor}; background-image: ${stripeGradient}; background-clip: padding-box; ${shouldShowCornerBadges ? '--combined-corner-bubbles: 1;' : ''} ${borderStyle}`;
   }
 
   getEventDateTimeInfo(event) {
@@ -7870,11 +8251,13 @@ class SkylightCalendarCard extends HTMLElement {
               if (!daySegment) return '';
               const { segmentStart, isAllDaySegment } = daySegment;
               const timeLabel = isAllDaySegment ? this.t('allDay') : this.formatTime(segmentStart);
+              const eventStyle = this.getEventStyle(event);
               return `
-                <div class="week-compact-event" style="background: ${event.color}; --event-bubble-font-size: ${this.getEventBubbleFontSize()}; --event-time-font-size: ${this.getEventTimeFontSize()}; --event-location-font-size: ${this.getEventLocationFontSize()}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
-                  <div class="week-compact-event-time">${timeLabel}</div>
+                <div class="week-compact-event" style="${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize(event)}; --event-time-font-size: ${this.getEventTimeFontSize(event)}; --event-location-font-size: ${this.getEventLocationFontSize(event)}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
+                  ${this.shouldShowEventTime(event) ? `<div class="week-compact-event-time">${timeLabel}</div>` : ''}
                   <div class="week-compact-event-title">${this.renderEventTitleWithPrefix(event, event.summary || this.t('untitledEvent'))}</div>
-                  ${this.shouldShowEventLocation(event) ? `<div class="week-compact-event-location">📍 ${this.escapeHtml(event.location)}</div>` : ''}
+                  ${this.shouldShowEventLocation(event) ? `<div class="week-compact-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location, event))}</div>` : ''}
+                  ${this.renderCombinedCornerBubbles(event)}
                 </div>
               `;
             }).join('') : `<div class="empty-state-subtext">${this.t('noEvents')}</div>`}
@@ -7916,14 +8299,14 @@ class SkylightCalendarCard extends HTMLElement {
           if (!daySegment) return '';
 
           const { segmentStart, segmentEnd, isAllDaySegment } = daySegment;
+          const eventStyle = this.getEventStyle(event, { withBorderAccent: true });
 
           return `
-            <div class="day-event day-modal-event" style="background: ${this.colorWithAlpha(event.color, 0.08)}; border-left: 4px solid ${event.color};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
+            <div class="day-event day-modal-event" style="${eventStyle} --event-bubble-font-size: ${this.getEventBubbleFontSize(event)}; --event-time-font-size: ${this.getEventTimeFontSize(event)}; --event-location-font-size: ${this.getEventLocationFontSize(event)}; --event-bubble-text-color: ${this.getEventBubbleFontColor(event)};" data-event='${JSON.stringify(event).replace(/'/g, "&#39;")}'>
               <div class="day-modal-event-title">${this.renderEventTitleWithPrefix(event, event.summary || this.t('untitledEvent'))}</div>
-              <div class="day-modal-event-meta">
-                ${isAllDaySegment ? this.t('allDay') : `${this.formatTime(segmentStart)} - ${this.formatTime(segmentEnd)}`}
-              </div>
-              ${event.location ? `<div class="day-modal-event-location">📍 ${this.escapeHtml(event.location)}</div>` : ''}
+              ${this.shouldShowEventTime(event) ? `<div class="day-modal-event-meta">${isAllDaySegment ? this.t('allDay') : `${this.formatTime(segmentStart)} - ${this.formatTime(segmentEnd)}`}</div>` : ''}
+              ${this.shouldShowEventLocation(event) ? `<div class="day-modal-event-location">📍 ${this.escapeHtml(this.getDisplayLocation(event.location, event))}</div>` : ''}
+              ${this.renderCombinedCornerBubbles(event)}
             </div>
           `;
         }).join('')}
