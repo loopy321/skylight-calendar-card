@@ -4393,6 +4393,11 @@ class SkylightCalendarCard extends HTMLElement {
         border-bottom-color: transparent !important;
       }
 
+      .calendar-container.dark-mode.custom-background .week-standard-day-column {
+        border-color: transparent !important;
+        box-shadow: none !important;
+      }
+
       .calendar-container.custom-background .week-standard-day-column.today .week-standard-day-date {
         background: #3b82f6 !important;
         color: #ffffff !important;
