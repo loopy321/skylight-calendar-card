@@ -815,6 +815,7 @@ class SkylightCalendarCard extends HTMLElement {
     const normalizedCalendarColors = this.normalizeColorMap(config.colors || {});
     const normalizedEventFontColors = this.normalizeColorMap(config.event_font_colors || {});
     const normalizedEventStyles = this.normalizeEventStyles(config.event_styles || []);
+    const normalizedDayStyles = this.normalizeDayStyles(config.day_styles || []);
     const normalizedHeaderColor = this.normalizeSingleColor(config.header_color);
     const normalizedHeaderTextColor = this.normalizeSingleColor(config.header_text_color);
     const hasConfiguredBackgroundOpacity = config.background_opacity !== undefined && config.background_opacity !== null && config.background_opacity !== '';
@@ -879,6 +880,7 @@ class SkylightCalendarCard extends HTMLElement {
       event_title_prefix: normalizedEventTitlePrefix, // Prefix event titles with calendar friendly name or badge icon
       event_font_colors: normalizedEventFontColors, // Per-calendar font colors for event bubble text
       event_styles: normalizedEventStyles, // Per-event styling rules with match logic
+      day_styles: normalizedDayStyles, // Per-day styling rules
       hide_times_for_calendars: config.hide_times_for_calendars || [], // Hide times in schedule view for specific calendars
       show_current_time_bar: config.show_current_time_bar || false, // Show a "now" indicator in schedule view
       use_24hr_schedule: config.use_24hr_schedule ?? false, // Use 24-hour time notation in schedule view
@@ -913,7 +915,8 @@ class SkylightCalendarCard extends HTMLElement {
       header_weather_sensor: typeof config.header_weather_sensor === 'string' && config.header_weather_sensor.trim()
         ? config.header_weather_sensor.trim()
         : null,
-      event_styles: normalizedEventStyles
+      event_styles: normalizedEventStyles,
+      day_styles: normalizedDayStyles
     };
     this._viewMode = this._config.default_view;
     this.applyThemeMode(this._config.color_scheme);
@@ -1164,6 +1167,89 @@ class SkylightCalendarCard extends HTMLElement {
       .filter(Boolean);
   }
 
+  normalizeDayStyles(rawRules) {
+    if (!Array.isArray(rawRules)) return [];
+
+    return rawRules
+      .map((rule) => {
+        if (!rule || typeof rule !== 'object') return null;
+
+        const condition = String(rule.condition || '').trim().toLowerCase();
+        if (!condition) return null;
+
+        if (!['today', 'past', 'future', 'weekend', 'weekday', 'has_event'].includes(condition)) {
+          return null;
+        }
+
+        if (condition === 'has_event' && (!rule.calendar || !String(rule.calendar).trim())) {
+          return null;
+        }
+
+        const normalized = { condition };
+
+        const normalizedBackground = String(rule.background || '').trim().toLowerCase() === 'auto'
+          ? 'auto'
+          : this.normalizeSingleColor(rule.background);
+        if (normalizedBackground) normalized.background = normalizedBackground;
+
+        const numericOpacity = Number(rule.opacity);
+        if (Number.isFinite(numericOpacity)) {
+          normalized.opacity = Math.max(0, Math.min(1, numericOpacity));
+        }
+
+        const numericBackgroundOpacity = Number(rule.background_opacity);
+        if (Number.isFinite(numericBackgroundOpacity)) {
+          normalized.background_opacity = Math.max(0, Math.min(1, numericBackgroundOpacity));
+        }
+
+        const normalizedBorderColor = this.normalizeSingleColor(rule.border_color);
+        if (normalizedBorderColor) normalized.border_color = normalizedBorderColor;
+
+        const normalizedBorderWidth = this.normalizeStyleBorderWidth(rule.border_width);
+        if (normalizedBorderWidth) normalized.border_width = normalizedBorderWidth;
+
+        if (condition === 'has_event') {
+          normalized.calendar = String(rule.calendar).trim();
+          if (rule.title_match !== undefined && rule.title_match !== null && rule.title_match !== '') {
+            normalized.title_match = rule.title_match;
+          }
+        }
+
+        if (
+          normalized.background === undefined &&
+          normalized.opacity === undefined &&
+          normalized.background_opacity === undefined &&
+          normalized.border_color === undefined &&
+          normalized.border_width === undefined
+        ) return null;
+        return normalized;
+      })
+      .filter(Boolean);
+  }
+
+  normalizeStyleBorderWidth(value) {
+    if (value === undefined || value === null || value === '') return null;
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const clamped = Math.max(0, value);
+      return `${clamped}px`;
+    }
+
+    const trimmed = String(value).trim();
+    if (!trimmed) return null;
+
+    if (/^\d*\.?\d+(px|rem|em|%)$/i.test(trimmed)) {
+      return trimmed;
+    }
+
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return `${parsed}px`;
+    }
+
+    return null;
+  }
+
   normalizeEventStyleBlock(style = {}) {
     const normalized = {};
     const setIfDefined = (key, value) => {
@@ -1332,6 +1418,121 @@ class SkylightCalendarCard extends HTMLElement {
     }
 
     return false;
+  }
+
+  findMatchingDayStyleEvent(rule, dayEvents) {
+    if (!rule || rule.condition !== 'has_event' || !rule.calendar) return null;
+
+    return dayEvents.find((event) => {
+      const calendarName = this.getCalendarName(event.entityId);
+      const matchesCalendar = this.matchTextCondition(event.entityId, rule.calendar) || this.matchTextCondition(calendarName, rule.calendar);
+      if (!matchesCalendar) return false;
+
+      if (rule.title_match !== undefined) {
+        return this.matchTextCondition(event.summary, rule.title_match);
+      }
+
+      return true;
+    }) || null;
+  }
+
+  getDayStyleConfig(date, dayEvents, isToday) {
+    const rules = Array.isArray(this._config?.day_styles) ? this._config.day_styles : [];
+    if (!rules.length) return null;
+
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    let background = null;
+    let opacity = null;
+    let backgroundOpacity = null;
+    let borderColor = null;
+    let borderWidth = null;
+
+    rules.forEach((rule) => {
+      let matches = false;
+      let matchedEvent = null;
+
+      if (rule.condition === 'today') matches = isToday;
+      if (rule.condition === 'past') matches = dayStart.getTime() < todayStart.getTime();
+      if (rule.condition === 'future') matches = dayStart.getTime() > todayStart.getTime();
+      if (rule.condition === 'weekend') matches = dayStart.getDay() === 0 || dayStart.getDay() === 6;
+      if (rule.condition === 'weekday') matches = dayStart.getDay() !== 0 && dayStart.getDay() !== 6;
+      if (rule.condition === 'has_event') {
+        matchedEvent = this.findMatchingDayStyleEvent(rule, dayEvents);
+        matches = !!matchedEvent;
+      }
+
+      if (!matches) return;
+
+      if (rule.background) {
+        if (rule.background === 'auto' && matchedEvent?.color) {
+          background = matchedEvent.color;
+        } else if (rule.background !== 'auto') {
+          background = rule.background;
+        }
+      }
+
+      if (rule.opacity !== undefined) {
+        opacity = rule.opacity;
+      }
+
+      if (rule.background_opacity !== undefined) {
+        backgroundOpacity = rule.background_opacity;
+      }
+
+      if (rule.border_color !== undefined) {
+        borderColor = rule.border_color;
+      }
+
+      if (rule.border_width !== undefined) {
+        borderWidth = rule.border_width;
+      }
+    });
+
+    if (!background && opacity === null && backgroundOpacity === null && !borderColor && !borderWidth) return null;
+    return {
+      background,
+      opacity,
+      background_opacity: backgroundOpacity,
+      border_color: borderColor,
+      border_width: borderWidth
+    };
+  }
+
+  getDayStyleAttributes(date, dayEvents, isToday) {
+    const dayStyle = this.getDayStyleConfig(date, dayEvents, isToday);
+    if (!dayStyle) return { className: '', style: '' };
+
+    const styles = [];
+    if (dayStyle.background) {
+      const backgroundColor = dayStyle.background_opacity !== null
+        ? this.colorWithAlpha(dayStyle.background, dayStyle.background_opacity)
+        : dayStyle.background;
+      styles.push(`--day-conditional-background: ${dayStyle.background}`);
+      styles.push(`background: ${backgroundColor} !important`);
+    }
+    if (dayStyle.opacity !== null) {
+      styles.push(`--day-conditional-opacity: ${dayStyle.opacity}`);
+      styles.push(`opacity: ${dayStyle.opacity}`);
+    }
+
+    if (dayStyle.border_color || dayStyle.border_width) {
+      const borderWidth = dayStyle.border_width || '2px';
+      const borderColor = dayStyle.border_color || 'var(--divider-color, #d1d5db)';
+      styles.push(`border: ${borderWidth} solid ${borderColor} !important`);
+      styles.push('box-sizing: border-box');
+    }
+    const classNames = ['day-style-rule'];
+    if (dayStyle.background) classNames.push('day-style-has-background');
+    if (dayStyle.border_color || dayStyle.border_width) classNames.push('day-style-has-border');
+
+    return {
+      className: classNames.join(' '),
+      style: styles.join('; ')
+    };
   }
 
   getWritableCalendars() {
@@ -2503,6 +2704,32 @@ class SkylightCalendarCard extends HTMLElement {
 
       .day-cell.today {
         background: #eff6ff;
+      }
+
+      .day-cell.day-style-rule,
+      .week-day-column.day-style-rule,
+      .week-standard-day-column.day-style-rule,
+      .agenda-day-row.day-style-rule {
+        opacity: var(--day-conditional-opacity, 1);
+      }
+
+      .day-cell.day-style-has-background,
+      .week-day-column.day-style-has-background,
+      .week-standard-day-column.day-style-has-background,
+      .agenda-day-row.day-style-has-background {
+        background: var(--day-conditional-background) !important;
+      }
+
+      .day-cell.day-style-has-background:hover {
+        background: var(--day-conditional-background) !important;
+      }
+
+      .week-day-column.day-style-has-background .week-day-header,
+      .week-standard-day-column.day-style-has-background .week-standard-day-header,
+      .week-standard-day-column.day-style-has-background .all-day-events,
+      .week-standard-day-column.day-style-has-background .day-time-slot,
+      .agenda-day-row.day-style-has-background .agenda-day-label {
+        background: transparent !important;
       }
 
       .day-number {
@@ -4524,9 +4751,11 @@ class SkylightCalendarCard extends HTMLElement {
         ${weekDays.map(date => {
           const isToday = date.toDateString() === today.toDateString();
           const events = this.sortEventsForDate(this.getEventsForDay(date), date);
+          const dayStyle = this.getDayStyleAttributes(date, events, isToday);
+          const dayStyleAttr = dayStyle.style ? ` style="${dayStyle.style}"` : '';
 
           return `
-            <div class="week-day-column ${isToday ? 'today' : ''}" data-date="${date.toISOString()}" data-click-target="day-header">
+            <div class="week-day-column ${isToday ? 'today' : ''} ${dayStyle.className}" data-date="${date.toISOString()}" data-click-target="day-header"${dayStyleAttr}>
               <div class="week-day-header">
                 <div class="week-day-header-main">
                   <div class="week-day-name">${dayNames[date.getDay()]}</div>
@@ -4603,12 +4832,14 @@ class SkylightCalendarCard extends HTMLElement {
         <!-- Day columns -->
         ${weekDays.map(date => {
           const isToday = date.toDateString() === today.toDateString();
-          const dayEvents = this.getEventsForDay(date);
+          const dayEvents = this.sortEventsForDate(this.getEventsForDay(date), date);
           const dateKey = this.getDateKey(date);
           const allDayLanes = allDayLayout.dayLanesByDateKey.get(dateKey) || [];
+          const dayStyle = this.getDayStyleAttributes(date, dayEvents, isToday);
+          const dayStyleAttr = dayStyle.style ? ` style="${dayStyle.style}"` : '';
 
           return `
-            <div class="week-standard-day-column ${isToday ? 'today' : ''}" data-date="${date.toISOString()}">
+            <div class="week-standard-day-column ${isToday ? 'today' : ''} ${dayStyle.className}" data-date="${date.toISOString()}"${dayStyleAttr}>
               <div class="week-standard-day-header" data-click-target="day-header">
                 <div class="week-day-header-main">
                   <div class="week-standard-day-name">${dayNames[date.getDay()]}</div>
@@ -4656,8 +4887,10 @@ class SkylightCalendarCard extends HTMLElement {
 
       const isToday = date.toDateString() === today.toDateString();
       const events = this.sortEventsForDate(this.getEventsForDay(date), date);
+      const dayStyle = this.getDayStyleAttributes(date, events, isToday);
+      const dayStyleAttr = dayStyle.style ? ` style="${dayStyle.style}"` : '';
       agendaRows.push(`
-        <div class="agenda-day-row ${isToday ? 'today' : ''}" data-date="${date.toISOString()}">
+        <div class="agenda-day-row ${isToday ? 'today' : ''} ${dayStyle.className}" data-date="${date.toISOString()}"${dayStyleAttr}>
           <div class="agenda-day-label">
             <div class="agenda-day-weekday">${dayNames[date.getDay()]}</div>
             <div class="agenda-day-date">${date.getDate()}</div>
@@ -5564,9 +5797,12 @@ class SkylightCalendarCard extends HTMLElement {
     let classes = 'day-cell';
     if (isOtherMonth) classes += ' other-month';
     if (isToday) classes += ' today';
+    const dayStyle = this.getDayStyleAttributes(date, dayEvents, isToday);
+    classes += dayStyle.className ? ` ${dayStyle.className}` : '';
+    const dayStyleAttr = dayStyle.style ? ` style="${dayStyle.style}"` : '';
 
     return `
-      <div class="${classes}" data-date="${date.toISOString()}">
+      <div class="${classes}" data-date="${date.toISOString()}"${dayStyleAttr}>
         <div class="day-header-row">
           <div class="day-number">${dayNum}</div>
           ${this.renderDayForecast(date, 'month')}
