@@ -4172,7 +4172,16 @@ class SkylightCalendarCard extends HTMLElement {
       .calendar-container.dark-mode .time-slot {
         background: #353c45;
         color: #dde3ea;
-        border-color: #353c45;
+      }
+
+      .calendar-container.dark-mode .time-slot,
+      .calendar-container.dark-mode .day-time-slot {
+        border-top: 1px solid transparent !important;
+      }
+
+      .calendar-container.dark-mode .week-standard-day-header,
+      .calendar-container.dark-mode .all-day-events {
+        border-bottom-color: transparent;
       }
 
 	  .calendar-container.dark-mode .day-header {
@@ -4208,6 +4217,11 @@ class SkylightCalendarCard extends HTMLElement {
         background: #3b82f6;
         color: white;
         border-radius: 50%;
+      }
+
+      .calendar-container.dark-mode .week-standard-day-column {
+        border: 1px solid #556070;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
       }
 
       .calendar-container.dark-mode .day-cell:hover,
@@ -4367,6 +4381,21 @@ class SkylightCalendarCard extends HTMLElement {
       .calendar-container.custom-background .week-compact-container,
       .calendar-container.custom-background .calendar-badges {
         border-color: rgba(255, 255, 255, 0.35) !important;
+      }
+
+      .calendar-container.dark-mode.custom-background .time-slot,
+      .calendar-container.dark-mode.custom-background .day-time-slot {
+        border-top-color: transparent !important;
+      }
+
+      .calendar-container.dark-mode.custom-background .week-standard-day-header,
+      .calendar-container.dark-mode.custom-background .all-day-events {
+        border-bottom-color: transparent !important;
+      }
+
+      .calendar-container.dark-mode.custom-background .week-standard-day-column {
+        border-color: transparent !important;
+        box-shadow: none !important;
       }
 
       .calendar-container.custom-background .week-standard-day-column.today .week-standard-day-date {
