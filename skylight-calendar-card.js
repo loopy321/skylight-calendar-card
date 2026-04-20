@@ -2274,9 +2274,10 @@ class SkylightCalendarCard extends HTMLElement {
 
       .calendar-container {
         position: relative;
-        border-radius: 12px;
+        border-radius: var(--ha-card-border-radius, 12px);
+        border: var(--ha-card-border-width, 0) solid var(--ha-card-border-color, transparent);
         overflow: hidden;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        box-shadow: var(--ha-card-box-shadow, 0 2px 8px rgba(0,0,0,0.1));
         width: 100%;
         color-scheme: light;
       }
@@ -2286,7 +2287,7 @@ class SkylightCalendarCard extends HTMLElement {
         position: absolute;
         inset: 0;
         z-index: 0;
-        background: var(--calendar-background, #ffffff);
+        background: var(--calendar-background, var(--ha-card-background, var(--card-background-color, #ffffff)));
         opacity: var(--calendar-background-opacity, 1);
         pointer-events: none;
       }
