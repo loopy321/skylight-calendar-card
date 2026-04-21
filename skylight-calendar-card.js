@@ -1115,12 +1115,42 @@ class SkylightCalendarCard extends HTMLElement {
     }
 
     const hex = this.colorToHex(normalizedColor);
-    if (!hex) return null;
+    if (hex) {
+      return {
+        r: parseInt(hex.slice(1, 3), 16),
+        g: parseInt(hex.slice(3, 5), 16),
+        b: parseInt(hex.slice(5, 7), 16)
+      };
+    }
+
+    return this.resolveComputedCssColorToRgb(normalizedColor);
+  }
+
+  resolveComputedCssColorToRgb(color) {
+    if (typeof color !== 'string' || typeof window === 'undefined' || typeof document === 'undefined') {
+      return null;
+    }
+
+    const probe = document.createElement('span');
+    probe.style.color = color;
+    probe.style.position = 'absolute';
+    probe.style.pointerEvents = 'none';
+    probe.style.opacity = '0';
+
+    const parent = this.isConnected ? this : document.body;
+    if (!parent) return null;
+
+    parent.appendChild(probe);
+    const computed = window.getComputedStyle(probe).color;
+    probe.remove();
+
+    const match = computed.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if (!match) return null;
 
     return {
-      r: parseInt(hex.slice(1, 3), 16),
-      g: parseInt(hex.slice(3, 5), 16),
-      b: parseInt(hex.slice(5, 7), 16)
+      r: Number(match[1]),
+      g: Number(match[2]),
+      b: Number(match[3])
     };
   }
 
