@@ -818,6 +818,10 @@ class SkylightCalendarCard extends HTMLElement {
     const normalizedDayStyles = this.normalizeDayStyles(config.day_styles || []);
     const normalizedHeaderColor = this.normalizeSingleColor(config.header_color);
     const normalizedHeaderTextColor = this.normalizeSingleColor(config.header_text_color);
+    const hasConfiguredHeaderBackgroundOpacity = config.header_background_opacity !== undefined && config.header_background_opacity !== null && config.header_background_opacity !== '';
+    const normalizedHeaderBackgroundOpacity = hasConfiguredHeaderBackgroundOpacity
+      ? this.normalizeBackgroundOpacity(config.header_background_opacity, 0)
+      : (config.header_background_transparent ? 100 : 0);
     const hasConfiguredBackgroundOpacity = config.background_opacity !== undefined && config.background_opacity !== null && config.background_opacity !== '';
     const normalizedBackgroundOpacity = hasConfiguredBackgroundOpacity
       ? this.normalizeBackgroundOpacity(config.background_opacity, 0)
@@ -886,6 +890,8 @@ class SkylightCalendarCard extends HTMLElement {
       use_24hr_schedule: config.use_24hr_schedule ?? false, // Use 24-hour time notation in schedule view
       header_color: normalizedHeaderColor !== undefined ? normalizedHeaderColor : 'var(--primary-color)', // Custom header background color/gradient
       header_text_color: normalizedHeaderTextColor, // Optional custom header text color (auto contrast by default)
+      header_background_transparent: normalizedHeaderBackgroundOpacity >= 100, // Legacy alias for full header transparency
+      header_background_opacity: normalizedHeaderBackgroundOpacity, // Header transparency percentage (0 = opaque, 100 = transparent)
       background_transparent: normalizedBackgroundOpacity >= 100, // Legacy alias for full transparency
       background_opacity: normalizedBackgroundOpacity, // Background transparency percentage (0 = opaque, 100 = transparent)
       background_image_url: config.background_image_url || null, // Optional background image URL for the calendar
@@ -905,6 +911,8 @@ class SkylightCalendarCard extends HTMLElement {
       ...config,
       default_view: normalizedDefaultView || 'month', // Re-apply normalization after spread for legacy values
       color_scheme: this.normalizeDefaultDarkMode(config.color_scheme), // Re-apply normalization after spread for color scheme values
+      header_background_opacity: normalizedHeaderBackgroundOpacity, // Re-apply normalization after spread for header background opacity values
+      header_background_transparent: normalizedHeaderBackgroundOpacity >= 100, // Re-apply legacy alias after spread for header transparency
       background_opacity: normalizedBackgroundOpacity, // Re-apply normalization after spread for background opacity values
       background_transparent: normalizedBackgroundOpacity >= 100, // Re-apply legacy alias after spread
       event_title_prefix: normalizedEventTitlePrefix, // Re-apply normalization after spread for event title prefix
@@ -2282,16 +2290,6 @@ class SkylightCalendarCard extends HTMLElement {
         color-scheme: light;
       }
 
-      .calendar-container::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        z-index: 0;
-        background: var(--calendar-background, var(--ha-card-background, var(--card-background-color, #ffffff)));
-        opacity: var(--calendar-background-opacity, 1);
-        pointer-events: none;
-      }
-
       .calendar-container::after {
         content: '';
         position: absolute;
@@ -2319,9 +2317,31 @@ class SkylightCalendarCard extends HTMLElement {
         font-family: inherit;
       }
 
-      .header {
-        background: var(--header-background);
+      .header,
+      .header-compact {
+        position: relative;
+        background: transparent;
         color: var(--header-text-color, white);
+      }
+
+      .header::before,
+      .header-compact::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        background: var(--header-background-base, var(--header-background, var(--primary-color)));
+        opacity: var(--header-background-alpha, 1);
+        pointer-events: none;
+      }
+
+      .header > *,
+      .header-compact > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .header {
         padding: 20px 24px;
         display: flex;
         justify-content: space-between;
@@ -2332,6 +2352,26 @@ class SkylightCalendarCard extends HTMLElement {
 
       .header-compact {
         padding: 16px 24px;
+      }
+
+      .calendar-body {
+        position: relative;
+        z-index: 1;
+      }
+
+      .calendar-body::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        background: var(--calendar-background, var(--ha-card-background, var(--card-background-color, #ffffff)));
+        opacity: var(--calendar-background-opacity, 1);
+        pointer-events: none;
+      }
+
+      .calendar-body > * {
+        position: relative;
+        z-index: 1;
       }
 
       .header-left {
@@ -4482,15 +4522,24 @@ class SkylightCalendarCard extends HTMLElement {
     const year = this._currentDate.getFullYear();
     const month = this._currentDate.getMonth();
 
-    const resolvedHeaderBackground = this.normalizeSingleColor(this._config.header_color) || 'var(--primary-color)';
+    const calendarBaseBackground = 'var(--calendar-background, var(--ha-card-background, var(--card-background-color, #ffffff)))';
+    const rawHeaderBackgroundColor = this.normalizeSingleColor(this._config.header_color);
+    const resolvedHeaderBackgroundBase = typeof rawHeaderBackgroundColor === 'string' && rawHeaderBackgroundColor.trim().toLowerCase() === 'match-card-background'
+      ? calendarBaseBackground
+      : (rawHeaderBackgroundColor || 'var(--primary-color)');
+    const normalizedHeaderBackgroundOpacity = this.normalizeBackgroundOpacity(
+      this._config.header_background_opacity,
+      this._config.header_background_transparent ? 100 : 0
+    );
+    const headerAlpha = (100 - normalizedHeaderBackgroundOpacity) / 100;
     const resolvedHeaderTextColor = this.normalizeSingleColor(this._config.header_text_color)
-      || this.getContractColor(resolvedHeaderBackground);
+      || this.getContractColor(resolvedHeaderBackgroundBase);
     const headerControlBackground = this.colorWithAlpha(resolvedHeaderTextColor, 0.16);
     const headerControlHoverBackground = this.colorWithAlpha(resolvedHeaderTextColor, 0.24);
     const headerControlActiveBackground = this.colorWithAlpha(resolvedHeaderTextColor, 0.32);
     const headerControlBorder = this.colorWithAlpha(resolvedHeaderTextColor, 0.4);
     const headerControlBorderHover = this.colorWithAlpha(resolvedHeaderTextColor, 0.6);
-    const headerStyle = `--header-background: ${resolvedHeaderBackground}; --header-text-color: ${resolvedHeaderTextColor}; --header-control-bg: ${headerControlBackground}; --header-control-bg-hover: ${headerControlHoverBackground}; --header-control-bg-active: ${headerControlActiveBackground}; --header-control-border: ${headerControlBorder}; --header-control-border-hover: ${headerControlBorderHover};`;
+    const headerStyle = `--header-background-base: ${resolvedHeaderBackgroundBase}; --header-background-alpha: ${headerAlpha}; --header-text-color: ${resolvedHeaderTextColor}; --header-control-bg: ${headerControlBackground}; --header-control-bg-hover: ${headerControlHoverBackground}; --header-control-bg-active: ${headerControlActiveBackground}; --header-control-border: ${headerControlBorder}; --header-control-border-hover: ${headerControlBorderHover};`;
     const normalizedBackgroundImageUrl = this.normalizeBackgroundImageUrl(this._config.background_image_url);
     const safeBackgroundImageUrl = normalizedBackgroundImageUrl
       ? String(normalizedBackgroundImageUrl).replace(/[\'\\]/g, '\\$&')
@@ -4518,11 +4567,12 @@ class SkylightCalendarCard extends HTMLElement {
 
       <div class="calendar-container ${this._isDarkMode ? 'dark-mode' : ''} ${hasCustomBackground ? 'custom-background' : ''} ${this._config.hide_year ? 'hide-year' : ''}" style="${containerStyle}">
         ${this._config.compact_header ? this.renderCompactHeader() : this.renderStandardHeader()}
+        <div class="calendar-body">
+          ${this.renderCalendarView()}
 
-        ${this.renderCalendarView()}
-
-        <div class="event-modal" id="event-modal">
-          <div class="modal-content" id="modal-content">
+          <div class="event-modal" id="event-modal">
+            <div class="modal-content" id="modal-content">
+            </div>
           </div>
         </div>
       </div>
@@ -9011,6 +9061,7 @@ class SkylightCalendarCard extends HTMLElement {
       use_short_location: false,
       event_location_font_size: 9,
       background_opacity: 0,
+      header_background_opacity: 0,
       event_calendar_friendly_name: false,
       event_title_prefix: 'none',
       combine_style: 'bars',
@@ -9212,6 +9263,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
       combine_calendars_width: 18,
       max_events: 0,
       first_day_of_week: 0,
+      header_background_opacity: 0,
       background_opacity: 0
     };
     return Object.prototype.hasOwnProperty.call(defaults, key) ? defaults[key] : 0;
@@ -9667,7 +9719,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
         <label for="header_color">Header color</label>
         <div class="field-row">
           ${this.renderColorInputControl({ id: 'header_color', field: 'header_color', value: this._config.header_color })}
-          <input data-field="header_color_text" data-type="color-text" type="text" value="${this.escapeHtml(this._config.header_color || '')}" placeholder="var(--primary-color)">
+          <input data-field="header_color_text" data-type="color-text" type="text" value="${this.escapeHtml(this._config.header_color || '')}" placeholder="var(--primary-color) or match-card-background">
         </div>
       </div>
       <div class="field">
@@ -9682,6 +9734,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
       ${this.renderSubSection('Calendar display names', `<div class="map-grid">${this.renderMapRowInputs('calendar_names', { label: 'calendar names', placeholder: 'Display name' })}</div>`)}
       ${this.renderSubSection('Calendar badge icons', `<div class="map-grid">${this.renderMapRowInputs('calendar_badge_icons', { label: 'badge icons', placeholder: 'mdi:icon or URL' })}</div>`)}
       <div class="boolean-list">
+        <label><input type="checkbox" data-field="header_background_transparent" ${this.normalizeBackgroundOpacity(this._config.header_background_opacity, this._config.header_background_transparent ? 100 : 0) >= 100 ? 'checked' : ''}> Transparent header surfaces</label>
         <label><input type="checkbox" data-field="background_transparent" ${this.normalizeBackgroundOpacity(this._config.background_opacity, this._config.background_transparent ? 100 : 0) >= 100 ? 'checked' : ''}> Transparent background surfaces</label>
         <label><input type="checkbox" data-field="hide_dark_mode_toggle" ${this._config.hide_dark_mode_toggle ? 'checked' : ''}> Hide dark mode toggle</label>
       </div>
@@ -9696,6 +9749,10 @@ class SkylightCalendarCardEditor extends HTMLElement {
     `);
 
     const backgroundSection = this.renderSection('Background image', `
+      <div class="field field-inline">
+        <label for="header_background_opacity">Header opacity</label>
+        <input id="header_background_opacity" data-field="header_background_opacity" data-type="number" type="number" min="0" max="100" step="1" value="${Number(this.normalizeBackgroundOpacity(this._config.header_background_opacity, this._config.header_background_transparent ? 100 : 0))}">
+      </div>
       <div class="field field-inline">
         <label for="background_opacity">Background opacity</label>
         <input id="background_opacity" data-field="background_opacity" data-type="number" type="number" min="0" max="100" step="1" value="${Number(this.normalizeBackgroundOpacity(this._config.background_opacity, this._config.background_transparent ? 100 : 0))}">
@@ -10565,6 +10622,8 @@ class SkylightCalendarCardEditor extends HTMLElement {
       nextConfig[field] = event.target.checked;
       if (field === 'background_transparent') {
         nextConfig.background_opacity = event.target.checked ? 100 : 0;
+      } else if (field === 'header_background_transparent') {
+        nextConfig.header_background_opacity = event.target.checked ? 100 : 0;
       }
       if (field === 'compact_height' || field === 'combine_calendars' || field === 'show_dashboard_nav_button') {
         this._config = nextConfig;
@@ -10590,11 +10649,17 @@ class SkylightCalendarCardEditor extends HTMLElement {
         if (field === 'background_opacity') {
           nextConfig.background_transparent = false;
         }
+        if (field === 'header_background_opacity') {
+          nextConfig.header_background_transparent = false;
+        }
       } else {
         const numericValue = Number(event.target.value);
         const parsedValue = Number.isFinite(numericValue) ? numericValue : this.getEditorDefaultValue(field);
         if (field === 'week_start_hour' || field === 'week_end_hour') {
           nextConfig[field] = Math.min(23, Math.max(0, parsedValue));
+        } else if (field === 'header_background_opacity') {
+          nextConfig.header_background_opacity = this.normalizeBackgroundOpacity(parsedValue, 0);
+          nextConfig.header_background_transparent = nextConfig.header_background_opacity >= 100;
         } else if (field === 'background_opacity') {
           nextConfig.background_opacity = this.normalizeBackgroundOpacity(parsedValue, 0);
           nextConfig.background_transparent = nextConfig.background_opacity >= 100;
