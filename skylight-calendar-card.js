@@ -6066,8 +6066,15 @@ class SkylightCalendarCard extends HTMLElement {
     return `${weekPrefix}${localizedWeekNumber}`;
   }
 
-  renderMonthWeekNumberCell(date) {
-    const weekLabel = this.formatMonthWeekNumberLabel(date);
+  getIsoWeekAnchorDateForRow(rowStartDate) {
+    const anchorDate = new Date(rowStartDate);
+    const daysUntilMonday = (1 - anchorDate.getDay() + 7) % 7;
+    anchorDate.setDate(anchorDate.getDate() + daysUntilMonday);
+    return anchorDate;
+  }
+
+  renderMonthWeekNumberCell(rowStartDate) {
+    const weekLabel = this.formatMonthWeekNumberLabel(this.getIsoWeekAnchorDateForRow(rowStartDate));
     return `
       <div class="month-week-number-cell" aria-label="${this.escapeHtml(weekLabel)}">
         <span class="month-week-number-text">${this.escapeHtml(weekLabel)}</span>
