@@ -2318,6 +2318,7 @@ class SkylightCalendarCard extends HTMLElement {
         box-shadow: var(--ha-card-box-shadow, 0 2px 8px rgba(0,0,0,0.1));
         width: 100%;
         color-scheme: light;
+        --schedule-hour-line-color: #d1d5db;
       }
 
       .calendar-container::after {
@@ -2394,7 +2395,7 @@ class SkylightCalendarCard extends HTMLElement {
         position: absolute;
         inset: 0;
         z-index: 0;
-        background: var(--calendar-background, var(--ha-card-background, var(--card-background-color, #ffffff)));
+        background: var(--calendar-background, var(--theme-card-background, var(--ha-card-background, var(--card-background-color, #ffffff))));
         opacity: var(--calendar-background-opacity, 1);
         pointer-events: none;
       }
@@ -3385,6 +3386,7 @@ class SkylightCalendarCard extends HTMLElement {
         min-width: 60px;
         flex-shrink: 0;
         position: relative;
+        background: transparent;
       }
 
       .time-column-header-spacer {
@@ -3575,7 +3577,7 @@ class SkylightCalendarCard extends HTMLElement {
 
       .day-time-slot {
         height: 120px;
-        border-top: 1px solid #f3f4f6;
+        border-top: 1px solid var(--schedule-hour-line-color, #e5e7eb);
         position: relative;
         box-sizing: border-box;
         cursor: pointer;
@@ -4213,10 +4215,7 @@ class SkylightCalendarCard extends HTMLElement {
       .calendar-container.dark-mode {
         color: #e8ecf1;
         color-scheme: dark;
-      }
-
-      .calendar-container.dark-mode::before {
-        background: var(--calendar-background, #2a2f36);
+        --schedule-hour-line-color: #556070;
       }
 
       .calendar-container.dark-mode,
@@ -4262,13 +4261,9 @@ class SkylightCalendarCard extends HTMLElement {
       }
 
       .calendar-container.dark-mode .time-slot {
-        background: #353c45;
+        background: inherit;
         color: #dde3ea;
-      }
-
-      .calendar-container.dark-mode .time-slot,
-      .calendar-container.dark-mode .day-time-slot {
-        border-top: 1px solid transparent !important;
+        border-top-color: transparent;
       }
 
       .calendar-container.dark-mode .week-standard-day-header,
@@ -4445,16 +4440,9 @@ class SkylightCalendarCard extends HTMLElement {
 
       .calendar-container.custom-background .calendar-grid,
       .calendar-container.custom-background .week-compact-container,
-      .calendar-container.custom-background .week-standard-container,
       .calendar-container.custom-background .calendar-badges,
-      .calendar-container.custom-background .day-header,
-      .calendar-container.custom-background .day-cell,
-      .calendar-container.custom-background .week-day-column,
       .calendar-container.custom-background .week-day-header,
-      .calendar-container.custom-background .week-standard-day-column,
       .calendar-container.custom-background .week-standard-day-header,
-      .calendar-container.custom-background .all-day-events,
-      .calendar-container.custom-background .day-time-slot,
       .calendar-container.custom-background .time-slot,
       .calendar-container.custom-background .time-slot-label,
       .calendar-container.custom-background .week-day-name,
@@ -4467,17 +4455,58 @@ class SkylightCalendarCard extends HTMLElement {
 
       .calendar-container.custom-background .week-day-header,
       .calendar-container.custom-background .week-standard-day-header,
-      .calendar-container.custom-background .all-day-events,
-      .calendar-container.custom-background .day-time-slot,
       .calendar-container.custom-background .calendar-grid,
       .calendar-container.custom-background .week-compact-container,
       .calendar-container.custom-background .calendar-badges {
         border-color: rgba(255, 255, 255, 0.35) !important;
       }
 
-      .calendar-container.dark-mode.custom-background .time-slot,
-      .calendar-container.dark-mode.custom-background .day-time-slot {
-        border-top-color: transparent !important;
+      .calendar-container.custom-background .week-standard-container {
+        background: rgba(var(--custom-surface-calendar-rgb, 249, 250, 251), var(--custom-surface-alpha, 0.55)) !important;
+      }
+
+      .calendar-container.custom-background .calendar-grid {
+        background: rgba(var(--custom-surface-calendar-rgb, 249, 250, 251), var(--custom-surface-alpha, 0.55)) !important;
+        border-top-color: rgba(var(--custom-surface-column-rgb, 255, 255, 255), var(--custom-surface-alpha, 0.55)) !important;
+      }
+
+      .calendar-container.custom-background .day-header {
+        background: rgba(var(--custom-surface-all-day-rgb, 249, 250, 251), var(--custom-surface-alpha, 0.55)) !important;
+      }
+
+      .calendar-container.custom-background .day-cell {
+        background: rgba(var(--custom-surface-column-rgb, 255, 255, 255), var(--custom-surface-alpha, 0.55)) !important;
+      }
+
+      .calendar-container.custom-background .week-compact-container {
+        background: rgba(var(--custom-surface-calendar-rgb, 249, 250, 251), var(--custom-surface-alpha, 0.55)) !important;
+        border-top-color: rgba(var(--custom-surface-column-rgb, 255, 255, 255), var(--custom-surface-alpha, 0.55)) !important;
+      }
+
+      .calendar-container.custom-background .week-day-column {
+        background: rgba(var(--custom-surface-column-rgb, 255, 255, 255), var(--custom-surface-alpha, 0.55)) !important;
+      }
+
+      .calendar-container.custom-background .week-standard-day-column {
+        background: rgba(var(--custom-surface-column-rgb, 255, 255, 255), var(--custom-surface-alpha, 0.55)) !important;
+      }
+
+      .calendar-container.custom-background .all-day-events {
+        background: rgba(var(--custom-surface-all-day-rgb, 249, 250, 251), var(--custom-surface-alpha, 0.55)) !important;
+      }
+
+      .calendar-container.custom-background .day-time-slot {
+        background: rgba(var(--custom-surface-slot-rgb, 255, 255, 255), var(--custom-surface-alpha, 0.55)) !important;
+      }
+
+      .calendar-container.custom-background .agenda-container,
+      .calendar-container.custom-background .agenda-month-banner,
+      .calendar-container.custom-background .agenda-day-row {
+        background: rgba(var(--custom-surface-calendar-rgb, 249, 250, 251), var(--custom-surface-alpha, 0.55)) !important;
+      }
+
+      .calendar-container.custom-background .agenda-day-label {
+        background: rgba(var(--custom-surface-all-day-rgb, 249, 250, 251), var(--custom-surface-alpha, 0.55)) !important;
       }
 
       .calendar-container.dark-mode.custom-background .week-standard-day-header,
@@ -4573,21 +4602,39 @@ class SkylightCalendarCard extends HTMLElement {
     const year = this._currentDate.getFullYear();
     const month = this._currentDate.getMonth();
 
-    const calendarBaseBackground = 'var(--calendar-background, var(--ha-card-background, var(--card-background-color, #ffffff)))';
-    const defaultCalendarSurfaceBackground = this._isDarkMode ? '#30363f' : '#ffffff';
+    const themeCardBackground = this._isDarkMode ? '#2a2f36' : '#ffffff';
+    const calendarBaseBackground = `var(--calendar-background, var(--theme-card-background, var(--ha-card-background, var(--card-background-color, ${themeCardBackground}))))`;
     const normalizedBackgroundOpacity = this.normalizeBackgroundOpacity(this._config.background_opacity, this._config.background_transparent ? 100 : 0);
-    const hasCustomBackground = normalizedBackgroundOpacity > 0;
     const rawHeaderBackgroundColor = this.normalizeSingleColor(this._config.header_color);
     const resolvedHeaderBackgroundBase = typeof rawHeaderBackgroundColor === 'string' && rawHeaderBackgroundColor.trim().toLowerCase() === 'match-card-background'
-      ? (hasCustomBackground ? calendarBaseBackground : defaultCalendarSurfaceBackground)
+      ? calendarBaseBackground
       : (rawHeaderBackgroundColor || 'var(--primary-color)');
     const normalizedHeaderBackgroundOpacity = this.normalizeBackgroundOpacity(
       this._config.header_background_opacity,
       this._config.header_background_transparent ? 100 : 0
     );
-    const headerAlpha = (100 - normalizedHeaderBackgroundOpacity) / 100;
-    const resolvedHeaderTextColor = this.normalizeSingleColor(this._config.header_text_color)
-      || this.getContractColor(resolvedHeaderBackgroundBase);
+    const normalizedHeaderReveal = Math.max(0, Math.min(1, normalizedHeaderBackgroundOpacity / 100));
+    const headerAlpha = Math.max(0.2, 1 - (normalizedHeaderReveal * 0.75));
+    const configuredHeaderTextColor = this.normalizeSingleColor(this._config.header_text_color);
+    let resolvedHeaderTextColor = configuredHeaderTextColor;
+    if (!resolvedHeaderTextColor) {
+      const headerBaseForContrast = typeof rawHeaderBackgroundColor === 'string' && rawHeaderBackgroundColor.trim().toLowerCase() === 'match-card-background'
+        ? themeCardBackground
+        : resolvedHeaderBackgroundBase;
+      const headerBaseRgb = this.colorToRgb(headerBaseForContrast);
+      const themeCardBackgroundRgb = this.colorToRgb(themeCardBackground);
+
+      if (headerBaseRgb && themeCardBackgroundRgb && headerAlpha < 1) {
+        const blendedHeaderRgb = {
+          r: Math.round((headerBaseRgb.r * headerAlpha) + (themeCardBackgroundRgb.r * (1 - headerAlpha))),
+          g: Math.round((headerBaseRgb.g * headerAlpha) + (themeCardBackgroundRgb.g * (1 - headerAlpha))),
+          b: Math.round((headerBaseRgb.b * headerAlpha) + (themeCardBackgroundRgb.b * (1 - headerAlpha)))
+        };
+        resolvedHeaderTextColor = this.getContractColor(`rgb(${blendedHeaderRgb.r}, ${blendedHeaderRgb.g}, ${blendedHeaderRgb.b})`);
+      } else {
+        resolvedHeaderTextColor = this.getContractColor(headerBaseForContrast);
+      }
+    }
     const headerControlBackground = this.colorWithAlpha(resolvedHeaderTextColor, 0.16);
     const headerControlHoverBackground = this.colorWithAlpha(resolvedHeaderTextColor, 0.24);
     const headerControlActiveBackground = this.colorWithAlpha(resolvedHeaderTextColor, 0.32);
@@ -4598,12 +4645,29 @@ class SkylightCalendarCard extends HTMLElement {
     const safeBackgroundImageUrl = normalizedBackgroundImageUrl
       ? String(normalizedBackgroundImageUrl).replace(/[\'\\]/g, '\\$&')
       : null;
+    const hasCustomBackground = normalizedBackgroundOpacity > 0;
     const backgroundImageStyle = safeBackgroundImageUrl
       ? `--calendar-background-image: url('${safeBackgroundImageUrl}'); --calendar-background-size: ${this._config.background_image_size}; --calendar-background-position: ${this._config.background_image_position}; --calendar-background-repeat: ${this._config.background_image_repeat};`
       : '';
     const backgroundAlpha = (100 - normalizedBackgroundOpacity) / 100;
-    const backgroundImageAlpha = safeBackgroundImageUrl ? (normalizedBackgroundOpacity / 100) : 0;
-    const backgroundStyle = `--calendar-background-opacity: ${backgroundAlpha}; --calendar-background-image-opacity: ${backgroundImageAlpha};`;
+    const normalizedReveal = Math.max(0, Math.min(1, normalizedBackgroundOpacity / 100));
+    const scaledBackgroundImageAlpha = Math.max(0, Math.min(1, normalizedReveal * 0.75));
+    const backgroundImageAlpha = safeBackgroundImageUrl ? scaledBackgroundImageAlpha : 0;
+    const customSurfaceAlpha = Math.max(0.2, 1 - (normalizedReveal * 0.75));
+    const customSurfacePalette = this._isDarkMode
+      ? {
+        calendar: '48, 54, 63',
+        column: '59, 67, 77',
+        allDay: '53, 60, 69',
+        slot: '53, 60, 69'
+      }
+      : {
+        calendar: '249, 250, 251',
+        column: '255, 255, 255',
+        allDay: '249, 250, 251',
+        slot: '255, 255, 255'
+      };
+    const backgroundStyle = `--theme-card-background: ${themeCardBackground}; --calendar-background-opacity: ${backgroundAlpha}; --calendar-background-image-opacity: ${backgroundImageAlpha}; --custom-surface-alpha: ${customSurfaceAlpha}; --custom-surface-calendar-rgb: ${customSurfacePalette.calendar}; --custom-surface-column-rgb: ${customSurfacePalette.column}; --custom-surface-all-day-rgb: ${customSurfacePalette.allDay}; --custom-surface-slot-rgb: ${customSurfacePalette.slot};`;
     const containerStyle = `${headerStyle} ${backgroundStyle} ${backgroundImageStyle}`.trim();
 
     this._root.innerHTML = `
