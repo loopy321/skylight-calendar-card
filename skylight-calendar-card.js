@@ -528,9 +528,13 @@ class SkylightCalendarCard extends HTMLElement {
     this._recentCustomColors = []; // Track recently used custom colors
     this._resolvedPreferenceStorageKey = null; // Track the resolved storage slot across card reconfiguration
     this._sharedPreferenceSyncInFlight = null; // Track dashboard-backed preference persistence
-    this._sharedPreferenceSaveTimer = null; // Debounce shared preference writes so UI updates can stay optimistic
+    this._sharedPreferenceSaveTimer = null; // Delay shared preference writes until the UI is idle enough to tolerate a dashboard save
     this._queuedSharedPreferenceState = null; // Track the latest shared preference payload waiting to be saved
-    this._sharedPreferenceSaveDebounceMs = 1200; // Delay shared writes enough to keep local interactions effectively instant
+    this._sharedPreferenceSaveDebounceMs = 1200; // Keep a short minimum delay before any shared save attempt
+    this._sharedPreferenceIdleDelayMs = 4000; // Give desktop/browser clients a brief idle window before triggering dashboard rewrites
+    this._sharedPreferenceTabletIdleDelayMs = 30000; // Give tablet/webview clients a much larger idle window before triggering dashboard rewrites
+    this._sharedPreferenceModalRetryDelayMs = 1000; // Retry shared saves periodically while modal flows are still active
+    this._lastSharedPreferenceInteractionAt = Date.now(); // Track the latest user interaction so shared saves can wait for idle time
     this._pendingSharedPreferenceCardKey = null; // Track the shared card key for unsaved optimistic preference overlays
     this._pendingSharedCustomEventColors = null; // Track unsaved shared custom event colors shown immediately in the UI
     this._pendingSharedCustomEventColorMeta = null; // Track unsaved shared custom color metadata shown immediately in the UI
@@ -593,6 +597,24 @@ class SkylightCalendarCard extends HTMLElement {
 
       this.updateCompactHeaderWrapState();
       this.updateCalendarBadgesScrollState();
+    };
+    this._handleSharedPreferenceInteraction = () => {
+      this.markSharedPreferenceInteraction();
+    };
+    this._handleSharedPreferenceVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        if (this._queuedSharedPreferenceState) {
+          void this.flushQueuedSharedPreferenceSave({ force: true });
+        }
+        return;
+      }
+
+      this.markSharedPreferenceInteraction();
+    };
+    this._handleSharedPreferencePageHide = () => {
+      if (this._queuedSharedPreferenceState) {
+        void this.flushQueuedSharedPreferenceSave({ force: true });
+      }
     };
   }
 
@@ -660,6 +682,80 @@ class SkylightCalendarCard extends HTMLElement {
     }
 
     return baseKey ? `${this.getPreferenceStoragePrefix()}${baseKey}` : null;
+  }
+
+  isTabletLikeSharedPreferenceClient() {
+    try {
+      if (navigator.maxTouchPoints > 0) {
+        return true;
+      }
+
+      return !!window.matchMedia?.('(pointer: coarse)').matches;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  getSharedPreferenceIdleDelayMs() {
+    return this.isTabletLikeSharedPreferenceClient()
+      ? this._sharedPreferenceTabletIdleDelayMs
+      : this._sharedPreferenceIdleDelayMs;
+  }
+
+  markSharedPreferenceInteraction(timestamp = Date.now()) {
+    this._lastSharedPreferenceInteractionAt = Number.isFinite(timestamp) ? timestamp : Date.now();
+  }
+
+  getRemainingSharedPreferenceIdleMs() {
+    const idleDelayMs = this.getSharedPreferenceIdleDelayMs();
+    if (!(idleDelayMs > 0)) {
+      return 0;
+    }
+
+    const elapsedMs = Date.now() - this._lastSharedPreferenceInteractionAt;
+    return Math.max(0, idleDelayMs - elapsedMs);
+  }
+
+  shouldDeferSharedPreferenceSave({ force = false } = {}) {
+    if (force) {
+      return false;
+    }
+
+    if (this.isEventManagementDialogOpen()) {
+      return true;
+    }
+
+    return this.getRemainingSharedPreferenceIdleMs() > 0;
+  }
+
+  getSharedPreferenceSaveDelayMs({ force = false } = {}) {
+    if (force) {
+      return 0;
+    }
+
+    return Math.max(
+      this._sharedPreferenceSaveDebounceMs,
+      this.isEventManagementDialogOpen() ? this._sharedPreferenceModalRetryDelayMs : 0,
+      this.getRemainingSharedPreferenceIdleMs()
+    );
+  }
+
+  scheduleSharedPreferenceSave({ force = false } = {}) {
+    if (!this._queuedSharedPreferenceState) {
+      return false;
+    }
+
+    if (this._sharedPreferenceSaveTimer) {
+      clearTimeout(this._sharedPreferenceSaveTimer);
+    }
+
+    const delayMs = this.getSharedPreferenceSaveDelayMs({ force });
+    this._sharedPreferenceSaveTimer = setTimeout(() => {
+      this._sharedPreferenceSaveTimer = null;
+      void this.flushQueuedSharedPreferenceSave({ force });
+    }, delayMs);
+
+    return true;
   }
 
   readPersistedPreferencesPayload(storageKey) {
@@ -2594,21 +2690,17 @@ class SkylightCalendarCard extends HTMLElement {
       sharedRecentCustomColors: this.normalizePreferenceColorList(sharedPreferenceState.sharedRecentCustomColors || [])
     };
 
-    if (this._sharedPreferenceSaveTimer) {
-      clearTimeout(this._sharedPreferenceSaveTimer);
-    }
-
-    this._sharedPreferenceSaveTimer = setTimeout(() => {
-      this._sharedPreferenceSaveTimer = null;
-      void this.flushQueuedSharedPreferenceSave();
-    }, this._sharedPreferenceSaveDebounceMs);
-
-    return true;
+    return this.scheduleSharedPreferenceSave();
   }
 
-  async flushQueuedSharedPreferenceSave() {
+  async flushQueuedSharedPreferenceSave({ force = false } = {}) {
     if (!this._hass?.callWS) {
       return false;
+    }
+
+    if (this._sharedPreferenceSaveTimer) {
+      clearTimeout(this._sharedPreferenceSaveTimer);
+      this._sharedPreferenceSaveTimer = null;
     }
 
     if (this._sharedPreferenceSyncInFlight) {
@@ -2617,6 +2709,11 @@ class SkylightCalendarCard extends HTMLElement {
       } catch (error) {
         // The current save path already logs failures; continue and retry the latest queued state.
       }
+    }
+
+    if (this.shouldDeferSharedPreferenceSave({ force })) {
+      this.scheduleSharedPreferenceSave({ force });
+      return false;
     }
 
     const queuedState = this._queuedSharedPreferenceState;
@@ -2632,7 +2729,7 @@ class SkylightCalendarCard extends HTMLElement {
     }
 
     if (this._queuedSharedPreferenceState) {
-      this.queueSharedPreferenceSave(this._queuedSharedPreferenceState);
+      this.scheduleSharedPreferenceSave();
     }
 
     return saveSucceeded;
@@ -3270,6 +3367,11 @@ class SkylightCalendarCard extends HTMLElement {
   connectedCallback() {
     window.addEventListener('resize', this._handleViewportResize);
     window.visualViewport?.addEventListener('resize', this._handleViewportResize);
+    window.addEventListener('pointerdown', this._handleSharedPreferenceInteraction, { passive: true });
+    window.addEventListener('touchstart', this._handleSharedPreferenceInteraction, { passive: true });
+    window.addEventListener('keydown', this._handleSharedPreferenceInteraction);
+    window.addEventListener('pagehide', this._handleSharedPreferencePageHide);
+    document.addEventListener('visibilitychange', this._handleSharedPreferenceVisibilityChange);
     this.attachSystemThemeListener();
     this.render();
   }
@@ -3277,6 +3379,11 @@ class SkylightCalendarCard extends HTMLElement {
   disconnectedCallback() {
     window.removeEventListener('resize', this._handleViewportResize);
     window.visualViewport?.removeEventListener('resize', this._handleViewportResize);
+    window.removeEventListener('pointerdown', this._handleSharedPreferenceInteraction);
+    window.removeEventListener('touchstart', this._handleSharedPreferenceInteraction);
+    window.removeEventListener('keydown', this._handleSharedPreferenceInteraction);
+    window.removeEventListener('pagehide', this._handleSharedPreferencePageHide);
+    document.removeEventListener('visibilitychange', this._handleSharedPreferenceVisibilityChange);
     this.detachSystemThemeListener();
     this.teardownWeatherForecastSubscription();
     if (this._modalVisibilityObserver) {
