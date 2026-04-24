@@ -533,8 +533,10 @@ class SkylightCalendarCard extends HTMLElement {
     this._sharedPreferenceSaveDebounceMs = 1200; // Delay shared writes enough to keep local interactions effectively instant
     this._pendingSharedPreferenceCardKey = null; // Track the shared card key for unsaved optimistic preference overlays
     this._pendingSharedCustomEventColors = null; // Track unsaved shared custom event colors shown immediately in the UI
+    this._pendingSharedCustomEventColorMeta = null; // Track unsaved shared custom color metadata shown immediately in the UI
     this._pendingSharedRecentCustomColors = null; // Track unsaved shared recent colors shown immediately in the UI
     this._sharedPreferenceMigrationAttempted = false; // Avoid repeated shared preference migration attempts
+    this._sharedPreferenceGarbageCollectionAttempted = false; // Avoid repeated shared preference cleanup attempts per config load
     this._frontendUserDataLoadInFlight = null; // Track per-user shared preference loads
     this._sharedUserDataCustomEventColors = {}; // Track per-user shared custom colors synced via HA frontend user data
     this._sharedUserDataRecentCustomColors = []; // Track per-user shared recent colors synced via HA frontend user data
@@ -642,7 +644,8 @@ class SkylightCalendarCard extends HTMLElement {
       return null;
     }
 
-    return baseKey;
+    const currentViewPath = this.getCurrentDashboardViewPath();
+    return currentViewPath ? `${currentViewPath}|${baseKey}` : baseKey;
   }
 
   getPreferenceStorageKey() {
@@ -789,6 +792,12 @@ class SkylightCalendarCard extends HTMLElement {
 
   getConfiguredDashboardPath() {
     return this.normalizeDashboardPath(this._config?.header_dashboard_path);
+  }
+
+  normalizeViewPathSegment(pathValue) {
+    if (typeof pathValue !== 'string') return null;
+    const trimmedPath = pathValue.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+    return trimmedPath || null;
   }
 
   shouldShowDashboardNavButton() {
@@ -1052,6 +1061,10 @@ class SkylightCalendarCard extends HTMLElement {
     const normalizedHeaderColor = this.normalizeSingleColor(config.header_color);
     const normalizedHeaderTextColor = this.normalizeSingleColor(config.header_text_color);
     const normalizedSharedCustomEventColors = this.normalizePreferenceColorMap(config.shared_custom_event_colors || {});
+    const normalizedSharedCustomEventColorMeta = this.normalizePreferenceColorMetaMap(
+      config.shared_custom_event_color_meta || {},
+      normalizedSharedCustomEventColors
+    );
     const normalizedSharedRecentCustomColors = this.normalizePreferenceColorList(config.shared_recent_custom_colors || []);
     const hasConfiguredHeaderBackgroundOpacity = config.header_background_opacity !== undefined && config.header_background_opacity !== null && config.header_background_opacity !== '';
     const normalizedHeaderBackgroundOpacity = hasConfiguredHeaderBackgroundOpacity
@@ -1121,7 +1134,9 @@ class SkylightCalendarCard extends HTMLElement {
       event_font_colors: normalizedEventFontColors, // Per-calendar font colors for event bubble text
       event_styles: normalizedEventStyles, // Per-event styling rules with match logic
       day_styles: normalizedDayStyles, // Per-day styling rules
+      enable_custom_event_colors: config.enable_custom_event_colors !== false, // Enable local/shared custom event colors
       shared_custom_event_colors: normalizedSharedCustomEventColors, // Dashboard-shared custom event colors
+      shared_custom_event_color_meta: normalizedSharedCustomEventColorMeta, // Dashboard-shared custom color metadata used for pruning
       shared_recent_custom_colors: normalizedSharedRecentCustomColors, // Dashboard-shared recent custom colors
       hide_times_for_calendars: config.hide_times_for_calendars || [], // Hide times in schedule view for specific calendars
       show_current_time_bar: config.show_current_time_bar || false, // Show a "now" indicator in schedule view
@@ -1163,14 +1178,25 @@ class SkylightCalendarCard extends HTMLElement {
         : null,
       event_styles: normalizedEventStyles,
       day_styles: normalizedDayStyles,
+      enable_custom_event_colors: config.enable_custom_event_colors !== false,
       shared_custom_event_colors: normalizedSharedCustomEventColors,
+      shared_custom_event_color_meta: normalizedSharedCustomEventColorMeta,
       shared_recent_custom_colors: normalizedSharedRecentCustomColors
     };
     this._resolvedPreferenceStorageKey = this._config.preference_storage_key
       ? null
       : previousResolvedPreferenceStorageKey;
     this._sharedPreferenceMigrationAttempted = false;
+    this._sharedPreferenceGarbageCollectionAttempted = false;
     this._viewMode = this._config.default_view;
+    if (!this._config.enable_custom_event_colors) {
+      if (this._sharedPreferenceSaveTimer) {
+        clearTimeout(this._sharedPreferenceSaveTimer);
+        this._sharedPreferenceSaveTimer = null;
+      }
+      this._queuedSharedPreferenceState = null;
+      this.clearPendingSharedPreferenceOverlay();
+    }
     this.applyThemeMode(this._config.color_scheme);
     this._hiddenCalendars = new Set(
       Array.from(previousHiddenCalendars).filter((entityId) => this._config.entities.includes(entityId))
@@ -1245,6 +1271,7 @@ class SkylightCalendarCard extends HTMLElement {
     }
 
     this.maybePromoteLocalPreferencesToShared();
+    this.maybeGarbageCollectSharedPreferences();
     this.ensureWeatherForecastSubscription();
     this.refreshWeatherForecastData();
 
@@ -1317,6 +1344,27 @@ class SkylightCalendarCard extends HTMLElement {
       .filter((color) => typeof color === 'string' && !!color)
       .filter((color, index, array) => array.indexOf(color) === index)
       .slice(0, 12);
+  }
+
+  normalizePreferenceColorMetaMap(metaMap, colorMap = null) {
+    if (!metaMap || typeof metaMap !== 'object' || Array.isArray(metaMap)) return {};
+
+    const allowedKeys = colorMap && typeof colorMap === 'object' && !Array.isArray(colorMap)
+      ? new Set(Object.keys(colorMap))
+      : null;
+
+    return Object.entries(metaMap).reduce((acc, [storageKey, touchedAt]) => {
+      const normalizedKey = String(storageKey || '').trim();
+      const normalizedTouchedAt = Math.floor(Number(touchedAt));
+      if (!normalizedKey || !Number.isFinite(normalizedTouchedAt) || normalizedTouchedAt <= 0) {
+        return acc;
+      }
+      if (allowedKeys && !allowedKeys.has(normalizedKey)) {
+        return acc;
+      }
+      acc[normalizedKey] = normalizedTouchedAt;
+      return acc;
+    }, {});
   }
 
   normalizeSingleColor(colorValue) {
@@ -1893,7 +1941,7 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   getStoredCustomColor(event) {
-    if (!event) return null;
+    if (!this.isCustomEventColorFeatureEnabled() || !event) return null;
 
     const seriesKey = this.getCustomColorSeriesKey(event);
     const sharedCustomEventColors = this.getEffectiveSharedCustomEventColors();
@@ -2063,6 +2111,10 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   getRecentCustomColors() {
+    if (!this.isCustomEventColorFeatureEnabled()) {
+      return [];
+    }
+
     const sharedRecentColors = this.getEffectiveSharedRecentCustomColors();
     if (sharedRecentColors.length > 0) {
       return sharedRecentColors;
@@ -2100,6 +2152,10 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   async saveRecentCustomColors(recentCustomColors) {
+    if (!this.isCustomEventColorFeatureEnabled()) {
+      return false;
+    }
+
     const normalizedRecentCustomColors = this.normalizePreferenceColorList(recentCustomColors || []);
     const currentRecentCustomColors = this.getRecentCustomColors();
     const isUnchanged = normalizedRecentCustomColors.length === currentRecentCustomColors.length &&
@@ -2113,6 +2169,7 @@ class SkylightCalendarCard extends HTMLElement {
     this.persistPreferences();
     const optimisticSharedState = this.getOptimisticSharedPreferenceState({
       sharedCustomEventColors: this.getEffectiveSharedCustomEventColors(),
+      sharedCustomEventColorMeta: this.getEffectiveSharedCustomEventColorMeta(),
       sharedRecentCustomColors: normalizedRecentCustomColors
     });
     this.queueSharedPreferenceSave(optimisticSharedState);
@@ -2159,6 +2216,24 @@ class SkylightCalendarCard extends HTMLElement {
     return `skylight-shared-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
+  isCustomEventColorFeatureEnabled() {
+    return this._config?.enable_custom_event_colors !== false;
+  }
+
+  getSharedCustomColorEntryLimit() {
+    return 250;
+  }
+
+  getSharedCustomColorRetentionMs() {
+    return 180 * 24 * 60 * 60 * 1000;
+  }
+
+  extractEntityIdFromPreferenceStorageKey(storageKey) {
+    const parts = String(storageKey || '').split('|');
+    const entityId = parts[1];
+    return typeof entityId === 'string' && entityId.startsWith('calendar.') ? entityId : null;
+  }
+
   getCurrentDashboardRoutePath() {
     const pathname = String(window.location?.pathname || '').split('?')[0].split('#')[0];
     if (pathname && pathname !== '/') {
@@ -2192,6 +2267,23 @@ class SkylightCalendarCard extends HTMLElement {
     }
 
     return this.getDashboardScopeKey();
+  }
+
+  getCurrentDashboardViewPath() {
+    const routePath = this.getCurrentDashboardRoutePath();
+    const dashboardUrlPath = this.getDashboardConfigUrlPath();
+    const dashboardPrefix = dashboardUrlPath ? `/${dashboardUrlPath}` : '';
+
+    if (!dashboardPrefix || routePath === dashboardPrefix || routePath === `${dashboardPrefix}/`) {
+      return null;
+    }
+
+    if (!routePath.startsWith(`${dashboardPrefix}/`)) {
+      return null;
+    }
+
+    const remainingPath = routePath.slice(dashboardPrefix.length + 1);
+    return this.normalizeViewPathSegment(remainingPath.split('/')[0]);
   }
 
   cloneConfigValue(value) {
@@ -2229,6 +2321,19 @@ class SkylightCalendarCard extends HTMLElement {
     return currentEntities && currentEntities === candidateEntities && currentTitle === candidateTitle;
   }
 
+  getCurrentDashboardViewCandidates(views) {
+    if (!Array.isArray(views) || views.length === 0) {
+      return [];
+    }
+
+    const currentViewPath = this.getCurrentDashboardViewPath();
+    if (currentViewPath) {
+      return views.filter((view) => this.normalizeViewPathSegment(view?.path) === currentViewPath);
+    }
+
+    return [views[0], ...views.slice(1).filter((view) => this.normalizeViewPathSegment(view?.path) === null)];
+  }
+
   findSharedPreferenceCardInDashboardConfig(lovelaceConfig) {
     const searchCards = (cards) => {
       if (!Array.isArray(cards)) return null;
@@ -2253,26 +2358,41 @@ class SkylightCalendarCard extends HTMLElement {
       return null;
     };
 
-    const views = Array.isArray(lovelaceConfig?.views) ? lovelaceConfig.views : [];
-    for (const view of views) {
-      const directMatch = searchCards(view?.cards);
-      if (directMatch) return directMatch;
+    const searchViews = (viewsToSearch) => {
+      for (const view of viewsToSearch) {
+        const directMatch = searchCards(view?.cards);
+        if (directMatch) return directMatch;
 
-      if (Array.isArray(view?.sections)) {
-        for (const section of view.sections) {
-          const sectionMatch = searchCards(section?.cards);
-          if (sectionMatch) return sectionMatch;
+        if (Array.isArray(view?.sections)) {
+          for (const section of view.sections) {
+            const sectionMatch = searchCards(section?.cards);
+            if (sectionMatch) return sectionMatch;
+          }
         }
       }
+
+      return null;
+    };
+
+    const views = Array.isArray(lovelaceConfig?.views) ? lovelaceConfig.views : [];
+    const candidateViews = this.getCurrentDashboardViewCandidates(views);
+    const candidateMatch = searchViews(candidateViews);
+    if (candidateMatch) {
+      return candidateMatch;
+    }
+
+    if (this.getSharedPreferenceCardKey()) {
+      return searchViews(views);
     }
 
     return null;
   }
 
-  applySharedPreferenceStateToConfig(sharedCustomEventColors, sharedRecentCustomColors, sharedCardKey = null) {
+  applySharedPreferenceStateToConfig(sharedCustomEventColors, sharedRecentCustomColors, sharedCustomEventColorMeta = {}, sharedCardKey = null) {
     this._config = {
       ...this._config,
       shared_custom_event_colors: this.normalizePreferenceColorMap(sharedCustomEventColors || {}),
+      shared_custom_event_color_meta: this.normalizePreferenceColorMetaMap(sharedCustomEventColorMeta || {}, sharedCustomEventColors || {}),
       shared_recent_custom_colors: this.normalizePreferenceColorList(sharedRecentCustomColors || []),
       ...(sharedCardKey ? { _shared_config_key: sharedCardKey } : {})
     };
@@ -2286,6 +2406,14 @@ class SkylightCalendarCard extends HTMLElement {
     return this.normalizePreferenceColorMap(this._config?.shared_custom_event_colors || {});
   }
 
+  getEffectiveSharedCustomEventColorMeta() {
+    if (this._pendingSharedCustomEventColorMeta !== null) {
+      return this.normalizePreferenceColorMetaMap(this._pendingSharedCustomEventColorMeta, this.getEffectiveSharedCustomEventColors());
+    }
+
+    return this.normalizePreferenceColorMetaMap(this._config?.shared_custom_event_color_meta || {}, this.getEffectiveSharedCustomEventColors());
+  }
+
   getEffectiveSharedRecentCustomColors() {
     if (this._pendingSharedRecentCustomColors !== null) {
       return this.normalizePreferenceColorList(this._pendingSharedRecentCustomColors);
@@ -2294,35 +2422,128 @@ class SkylightCalendarCard extends HTMLElement {
     return this.normalizePreferenceColorList(this._config?.shared_recent_custom_colors || []);
   }
 
+  prepareSharedPreferenceState({ sharedCustomEventColors, sharedRecentCustomColors, sharedCustomEventColorMeta = {}, touchedKeys = [] }) {
+    const now = Date.now();
+    const normalizedSharedCustomEventColors = this.normalizePreferenceColorMap(sharedCustomEventColors || {});
+    const normalizedSharedRecentCustomColors = this.normalizePreferenceColorList(sharedRecentCustomColors || []);
+    const normalizedSharedCustomEventColorMeta = this.normalizePreferenceColorMetaMap(
+      sharedCustomEventColorMeta || {},
+      normalizedSharedCustomEventColors
+    );
+
+    Object.keys(normalizedSharedCustomEventColors).forEach((storageKey) => {
+      if (!normalizedSharedCustomEventColorMeta[storageKey]) {
+        normalizedSharedCustomEventColorMeta[storageKey] = now;
+      }
+    });
+
+    touchedKeys
+      .map((storageKey) => String(storageKey || '').trim())
+      .filter(Boolean)
+      .forEach((storageKey) => {
+        if (normalizedSharedCustomEventColors[storageKey]) {
+          normalizedSharedCustomEventColorMeta[storageKey] = now;
+        }
+      });
+
+    const configuredEntities = new Set(
+      Array.isArray(this._config?.entities)
+        ? this._config.entities.filter((entityId) => typeof entityId === 'string' && entityId.startsWith('calendar.'))
+        : []
+    );
+
+    Object.keys(normalizedSharedCustomEventColors).forEach((storageKey) => {
+      const entityId = this.extractEntityIdFromPreferenceStorageKey(storageKey);
+      if (!entityId || !configuredEntities.has(entityId)) {
+        delete normalizedSharedCustomEventColors[storageKey];
+        delete normalizedSharedCustomEventColorMeta[storageKey];
+      }
+    });
+
+    const retentionMs = this.getSharedCustomColorRetentionMs();
+    Object.keys(normalizedSharedCustomEventColors).forEach((storageKey) => {
+      const touchedAt = normalizedSharedCustomEventColorMeta[storageKey];
+      if (Number.isFinite(touchedAt) && touchedAt > 0 && (now - touchedAt) > retentionMs) {
+        delete normalizedSharedCustomEventColors[storageKey];
+        delete normalizedSharedCustomEventColorMeta[storageKey];
+      }
+    });
+
+    const maxEntries = this.getSharedCustomColorEntryLimit();
+    const sortedKeys = Object.keys(normalizedSharedCustomEventColors)
+      .sort((leftKey, rightKey) => {
+        const leftTouchedAt = normalizedSharedCustomEventColorMeta[leftKey] || 0;
+        const rightTouchedAt = normalizedSharedCustomEventColorMeta[rightKey] || 0;
+        if (rightTouchedAt !== leftTouchedAt) {
+          return rightTouchedAt - leftTouchedAt;
+        }
+        return leftKey.localeCompare(rightKey);
+      });
+
+    if (sortedKeys.length > maxEntries) {
+      const allowedKeys = new Set(sortedKeys.slice(0, maxEntries));
+      Object.keys(normalizedSharedCustomEventColors).forEach((storageKey) => {
+        if (!allowedKeys.has(storageKey)) {
+          delete normalizedSharedCustomEventColors[storageKey];
+          delete normalizedSharedCustomEventColorMeta[storageKey];
+        }
+      });
+    }
+
+    return {
+      sharedCustomEventColors: normalizedSharedCustomEventColors,
+      sharedRecentCustomColors: normalizedSharedRecentCustomColors,
+      sharedCustomEventColorMeta: this.normalizePreferenceColorMetaMap(
+        normalizedSharedCustomEventColorMeta,
+        normalizedSharedCustomEventColors
+      )
+    };
+  }
+
+  sharedPreferenceStatesEqual(leftState, rightState) {
+    if (!leftState || !rightState) {
+      return false;
+    }
+
+    if ((leftState.sharedCardKey || null) !== (rightState.sharedCardKey || null)) {
+      return false;
+    }
+
+    const leftCustomEventColors = this.normalizePreferenceColorMap(leftState.sharedCustomEventColors || {});
+    const rightCustomEventColors = this.normalizePreferenceColorMap(rightState.sharedCustomEventColors || {});
+    const leftRecentCustomColors = this.normalizePreferenceColorList(leftState.sharedRecentCustomColors || []);
+    const rightRecentCustomColors = this.normalizePreferenceColorList(rightState.sharedRecentCustomColors || []);
+    const leftCustomEventColorMeta = this.normalizePreferenceColorMetaMap(leftState.sharedCustomEventColorMeta || {}, leftCustomEventColors);
+    const rightCustomEventColorMeta = this.normalizePreferenceColorMetaMap(rightState.sharedCustomEventColorMeta || {}, rightCustomEventColors);
+
+    const leftColorKeys = Object.keys(leftCustomEventColors).sort();
+    const rightColorKeys = Object.keys(rightCustomEventColors).sort();
+    if (leftColorKeys.length !== rightColorKeys.length) {
+      return false;
+    }
+
+    if (!leftColorKeys.every((key, index) => (
+      key === rightColorKeys[index] &&
+      leftCustomEventColors[key] === rightCustomEventColors[key] &&
+      (leftCustomEventColorMeta[key] || 0) === (rightCustomEventColorMeta[key] || 0)
+    ))) {
+      return false;
+    }
+
+    if (leftRecentCustomColors.length !== rightRecentCustomColors.length) {
+      return false;
+    }
+
+    return leftRecentCustomColors.every((entry, index) => entry === rightRecentCustomColors[index]);
+  }
+
   sharedPreferencePayloadMatchesPending(sharedPreferenceState) {
-    if (!sharedPreferenceState) {
-      return false;
-    }
-
-    const normalizedPendingCustomEventColors = this.normalizePreferenceColorMap(this._pendingSharedCustomEventColors || {});
-    const normalizedPendingRecentCustomColors = this.normalizePreferenceColorList(this._pendingSharedRecentCustomColors || []);
-    const normalizedSharedCustomEventColors = this.normalizePreferenceColorMap(sharedPreferenceState.sharedCustomEventColors || {});
-    const normalizedSharedRecentCustomColors = this.normalizePreferenceColorList(sharedPreferenceState.sharedRecentCustomColors || []);
-    const pendingCustomKeys = Object.keys(normalizedPendingCustomEventColors).sort();
-    const sharedCustomKeys = Object.keys(normalizedSharedCustomEventColors).sort();
-
-    if ((this._pendingSharedPreferenceCardKey || null) !== (sharedPreferenceState.sharedCardKey || null)) {
-      return false;
-    }
-
-    if (pendingCustomKeys.length !== sharedCustomKeys.length) {
-      return false;
-    }
-
-    if (!pendingCustomKeys.every((key, index) => key === sharedCustomKeys[index] && normalizedPendingCustomEventColors[key] === normalizedSharedCustomEventColors[key])) {
-      return false;
-    }
-
-    if (normalizedPendingRecentCustomColors.length !== normalizedSharedRecentCustomColors.length) {
-      return false;
-    }
-
-    return normalizedPendingRecentCustomColors.every((entry, index) => entry === normalizedSharedRecentCustomColors[index]);
+    return this.sharedPreferenceStatesEqual({
+      sharedCardKey: this._pendingSharedPreferenceCardKey,
+      sharedCustomEventColors: this._pendingSharedCustomEventColors,
+      sharedCustomEventColorMeta: this._pendingSharedCustomEventColorMeta,
+      sharedRecentCustomColors: this._pendingSharedRecentCustomColors
+    }, sharedPreferenceState);
   }
 
   clearPendingSharedPreferenceOverlay(sharedPreferenceState = null) {
@@ -2332,22 +2553,29 @@ class SkylightCalendarCard extends HTMLElement {
 
     this._pendingSharedPreferenceCardKey = null;
     this._pendingSharedCustomEventColors = null;
+    this._pendingSharedCustomEventColorMeta = null;
     this._pendingSharedRecentCustomColors = null;
   }
 
-  getOptimisticSharedPreferenceState({ sharedCustomEventColors, sharedRecentCustomColors }) {
+  getOptimisticSharedPreferenceState({ sharedCustomEventColors, sharedRecentCustomColors, sharedCustomEventColorMeta = {}, touchedKeys = [] }) {
     const sharedCardKey = this._pendingSharedPreferenceCardKey || this.getSharedPreferenceCardKey() || this.createSharedPreferenceCardKey();
-    const normalizedSharedCustomEventColors = this.normalizePreferenceColorMap(sharedCustomEventColors || {});
-    const normalizedSharedRecentCustomColors = this.normalizePreferenceColorList(sharedRecentCustomColors || []);
+    const preparedSharedState = this.prepareSharedPreferenceState({
+      sharedCustomEventColors,
+      sharedRecentCustomColors,
+      sharedCustomEventColorMeta,
+      touchedKeys
+    });
 
     this._pendingSharedPreferenceCardKey = sharedCardKey;
-    this._pendingSharedCustomEventColors = normalizedSharedCustomEventColors;
-    this._pendingSharedRecentCustomColors = normalizedSharedRecentCustomColors;
+    this._pendingSharedCustomEventColors = preparedSharedState.sharedCustomEventColors;
+    this._pendingSharedCustomEventColorMeta = preparedSharedState.sharedCustomEventColorMeta;
+    this._pendingSharedRecentCustomColors = preparedSharedState.sharedRecentCustomColors;
 
     return {
       sharedCardKey,
-      sharedCustomEventColors: normalizedSharedCustomEventColors,
-      sharedRecentCustomColors: normalizedSharedRecentCustomColors
+      sharedCustomEventColors: preparedSharedState.sharedCustomEventColors,
+      sharedCustomEventColorMeta: preparedSharedState.sharedCustomEventColorMeta,
+      sharedRecentCustomColors: preparedSharedState.sharedRecentCustomColors
     };
   }
 
@@ -2359,6 +2587,10 @@ class SkylightCalendarCard extends HTMLElement {
     this._queuedSharedPreferenceState = {
       sharedCardKey: sharedPreferenceState.sharedCardKey || this.getSharedPreferenceCardKey() || this.createSharedPreferenceCardKey(),
       sharedCustomEventColors: this.normalizePreferenceColorMap(sharedPreferenceState.sharedCustomEventColors || {}),
+      sharedCustomEventColorMeta: this.normalizePreferenceColorMetaMap(
+        sharedPreferenceState.sharedCustomEventColorMeta || {},
+        sharedPreferenceState.sharedCustomEventColors || {}
+      ),
       sharedRecentCustomColors: this.normalizePreferenceColorList(sharedPreferenceState.sharedRecentCustomColors || [])
     };
 
@@ -2406,14 +2638,20 @@ class SkylightCalendarCard extends HTMLElement {
     return saveSucceeded;
   }
 
-  async saveSharedPreferenceState({ sharedCustomEventColors, sharedRecentCustomColors, sharedCardKey = null }) {
+  async saveSharedPreferenceState({ sharedCustomEventColors, sharedRecentCustomColors, sharedCustomEventColorMeta = {}, sharedCardKey = null }) {
     if (!this._hass?.callWS || this._sharedPreferenceSyncInFlight) {
       return false;
     }
 
     const resolvedSharedCardKey = sharedCardKey || this.getSharedPreferenceCardKey() || this.createSharedPreferenceCardKey();
-    const normalizedSharedCustomEventColors = this.normalizePreferenceColorMap(sharedCustomEventColors || {});
-    const normalizedSharedRecentCustomColors = this.normalizePreferenceColorList(sharedRecentCustomColors || []);
+    const preparedSharedState = this.prepareSharedPreferenceState({
+      sharedCustomEventColors,
+      sharedRecentCustomColors,
+      sharedCustomEventColorMeta
+    });
+    const normalizedSharedCustomEventColors = preparedSharedState.sharedCustomEventColors;
+    const normalizedSharedCustomEventColorMeta = preparedSharedState.sharedCustomEventColorMeta;
+    const normalizedSharedRecentCustomColors = preparedSharedState.sharedRecentCustomColors;
     const dashboardUrlPath = this.getDashboardConfigUrlPath();
 
     const syncPromise = (async () => {
@@ -2432,10 +2670,33 @@ class SkylightCalendarCard extends HTMLElement {
           return false;
         }
 
+        const currentSharedState = {
+          sharedCardKey: typeof match.cardConfig?._shared_config_key === 'string' ? match.cardConfig._shared_config_key.trim() : null,
+          sharedCustomEventColors: match.cardConfig?.shared_custom_event_colors || {},
+          sharedCustomEventColorMeta: match.cardConfig?.shared_custom_event_color_meta || {},
+          sharedRecentCustomColors: match.cardConfig?.shared_recent_custom_colors || []
+        };
+        const nextSharedState = {
+          sharedCardKey: resolvedSharedCardKey,
+          sharedCustomEventColors: normalizedSharedCustomEventColors,
+          sharedCustomEventColorMeta: normalizedSharedCustomEventColorMeta,
+          sharedRecentCustomColors: normalizedSharedRecentCustomColors
+        };
+        if (this.sharedPreferenceStatesEqual(currentSharedState, nextSharedState)) {
+          this.applySharedPreferenceStateToConfig(
+            normalizedSharedCustomEventColors,
+            normalizedSharedRecentCustomColors,
+            normalizedSharedCustomEventColorMeta,
+            resolvedSharedCardKey
+          );
+          return true;
+        }
+
         const nextCardConfig = {
           ...match.cardConfig,
           _shared_config_key: resolvedSharedCardKey,
           shared_custom_event_colors: normalizedSharedCustomEventColors,
+          shared_custom_event_color_meta: normalizedSharedCustomEventColorMeta,
           shared_recent_custom_colors: normalizedSharedRecentCustomColors
         };
         match.parentArray[match.index] = nextCardConfig;
@@ -2446,7 +2707,12 @@ class SkylightCalendarCard extends HTMLElement {
           config: nextLovelaceConfig
         });
 
-        this.applySharedPreferenceStateToConfig(normalizedSharedCustomEventColors, normalizedSharedRecentCustomColors, resolvedSharedCardKey);
+        this.applySharedPreferenceStateToConfig(
+          normalizedSharedCustomEventColors,
+          normalizedSharedRecentCustomColors,
+          normalizedSharedCustomEventColorMeta,
+          resolvedSharedCardKey
+        );
         return true;
       } catch (error) {
         console.warn('Failed to save shared custom color preferences to dashboard config:', error);
@@ -2461,7 +2727,7 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   maybePromoteLocalPreferencesToShared() {
-    if (this._sharedPreferenceMigrationAttempted || !this._hass?.callWS) {
+    if (this._sharedPreferenceMigrationAttempted || !this._hass?.callWS || !this.isCustomEventColorFeatureEnabled()) {
       return;
     }
 
@@ -2478,12 +2744,43 @@ class SkylightCalendarCard extends HTMLElement {
 
     const optimisticSharedState = this.getOptimisticSharedPreferenceState({
       sharedCustomEventColors: this._customEventColors,
+      sharedCustomEventColorMeta: this.getEffectiveSharedCustomEventColorMeta(),
       sharedRecentCustomColors: this._recentCustomColors
     });
     this.queueSharedPreferenceSave(optimisticSharedState);
   }
 
+  maybeGarbageCollectSharedPreferences() {
+    if (this._sharedPreferenceGarbageCollectionAttempted || !this._hass?.callWS || !this.isCustomEventColorFeatureEnabled()) {
+      return;
+    }
+
+    this._sharedPreferenceGarbageCollectionAttempted = true;
+
+    const currentSharedState = {
+      sharedCardKey: this.getSharedPreferenceCardKey(),
+      sharedCustomEventColors: this.getEffectiveSharedCustomEventColors(),
+      sharedCustomEventColorMeta: this.getEffectiveSharedCustomEventColorMeta(),
+      sharedRecentCustomColors: this.getEffectiveSharedRecentCustomColors()
+    };
+    const preparedSharedState = this.prepareSharedPreferenceState(currentSharedState);
+
+    if (this.sharedPreferenceStatesEqual(currentSharedState, {
+      sharedCardKey: this.getSharedPreferenceCardKey(),
+      ...preparedSharedState
+    })) {
+      return;
+    }
+
+    const optimisticSharedState = this.getOptimisticSharedPreferenceState(preparedSharedState);
+    this.queueSharedPreferenceSave(optimisticSharedState);
+  }
+
   async setStoredCustomColor(event, color) {
+    if (!this.isCustomEventColorFeatureEnabled()) {
+      return false;
+    }
+
     const storageKey = this.getCustomColorSeriesKey(event) || this.getCustomColorEventKey(event);
     const normalizedColor = this.colorToHex(color) || this.normalizeSingleColor(color);
     if (!storageKey || !normalizedColor) {
@@ -2507,13 +2804,19 @@ class SkylightCalendarCard extends HTMLElement {
     this.persistPreferences();
     const optimisticSharedState = this.getOptimisticSharedPreferenceState({
       sharedCustomEventColors: nextSharedCustomEventColors,
-      sharedRecentCustomColors: nextRecentCustomColors
+      sharedCustomEventColorMeta: this.getEffectiveSharedCustomEventColorMeta(),
+      sharedRecentCustomColors: nextRecentCustomColors,
+      touchedKeys: [storageKey]
     });
     this.queueSharedPreferenceSave(optimisticSharedState);
     return true;
   }
 
   async clearStoredCustomColor(event) {
+    if (!this.isCustomEventColorFeatureEnabled()) {
+      return false;
+    }
+
     const candidateKeys = [
       this.getCustomColorSeriesKey(event),
       this.getCustomColorEventKey(event)
@@ -2524,11 +2827,13 @@ class SkylightCalendarCard extends HTMLElement {
     }
 
     const nextSharedCustomEventColors = { ...this.getEffectiveSharedCustomEventColors() };
+    const nextSharedCustomEventColorMeta = { ...this.getEffectiveSharedCustomEventColorMeta() };
     let sharedChanged = false;
 
     candidateKeys.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(nextSharedCustomEventColors, key)) {
         delete nextSharedCustomEventColors[key];
+        delete nextSharedCustomEventColorMeta[key];
         sharedChanged = true;
       }
     });
@@ -2545,6 +2850,7 @@ class SkylightCalendarCard extends HTMLElement {
       this.persistPreferences();
       const optimisticSharedState = this.getOptimisticSharedPreferenceState({
         sharedCustomEventColors: nextSharedCustomEventColors,
+        sharedCustomEventColorMeta: nextSharedCustomEventColorMeta,
         sharedRecentCustomColors: this.getRecentCustomColors()
       });
       this.queueSharedPreferenceSave(optimisticSharedState);
@@ -10318,7 +10624,7 @@ class SkylightCalendarCard extends HTMLElement {
     // WebSocket delete works for Google Calendar and other integrations
     const canEdit = canModify;
     const canDelete = canModify; // WebSocket delete works for all calendars including Google
-    const canCustomColor = true;
+    const canCustomColor = this.isCustomEventColorFeatureEnabled();
     const customColor = this.getStoredCustomColor(event);
     const customColorButtonColor = customColor || this.getEventBackgroundColor(event);
     const customColorButtonTextColor = this.getContractColor(customColorButtonColor);
@@ -10973,7 +11279,8 @@ class SkylightCalendarCard extends HTMLElement {
       header_dashboard_path: null,
       header_weather_sensor: '',
       color_scheme: 'auto',
-      enable_event_management: true
+      enable_event_management: true,
+      enable_custom_event_colors: true
     };
   }
 
@@ -11163,7 +11470,8 @@ class SkylightCalendarCardEditor extends HTMLElement {
       max_events: 0,
       first_day_of_week: 0,
       header_background_opacity: 0,
-      background_opacity: 0
+      background_opacity: 0,
+      enable_custom_event_colors: true
     };
     return Object.prototype.hasOwnProperty.call(defaults, key) ? defaults[key] : 0;
   }
@@ -11730,6 +12038,7 @@ class SkylightCalendarCardEditor extends HTMLElement {
         <label><input type="checkbox" data-field="use_24hr_schedule" ${this._config.use_24hr_schedule ? 'checked' : ''}> Use 24-hour schedule time</label>
         <label><input type="checkbox" data-field="show_event_location" ${this._config.show_event_location ? 'checked' : ''}> Show event location</label>
         <label><input type="checkbox" data-field="use_short_location" ${this._config.use_short_location ? 'checked' : ''}> Shorten event location in views</label>
+        <label><input type="checkbox" data-field="enable_custom_event_colors" ${this._config.enable_custom_event_colors !== false ? 'checked' : ''}> Enable custom event colors</label>
         <label><input type="checkbox" data-field="combine_calendars" ${this._config.combine_calendars ? 'checked' : ''}> Combine duplicate events across calendars</label>
       </div>
       ${this._config.combine_calendars ? `
