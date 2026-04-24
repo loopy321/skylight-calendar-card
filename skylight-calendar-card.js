@@ -56,6 +56,17 @@ const TRANSLATIONS = {
       createEvent: 'Create Event',
       creating: 'Creating...',
       editEvent: 'Edit Event',
+      customColor: 'Custom Color',
+      customColorTitle: 'Custom Event Color',
+      customColorEventHint: 'Choose a local-only color for this event.',
+      customColorSeriesHint: 'Choose a local-only color for this recurring series.',
+      clearCustomColor: 'Clear Custom Color',
+      recentColors: 'Recent Colors',
+      customColorInput: 'Custom Color',
+      hexColor: 'Hex Color',
+      applyCustomColor: 'Apply Color',
+      invalidHexColor: 'Enter a valid 6-digit hex color.',
+      usingDefaultColor: 'Using default styling',
       saveChanges: 'Save Changes',
       saving: 'Saving...',
       delete: 'Delete',
@@ -508,6 +519,9 @@ class SkylightCalendarCard extends HTMLElement {
     this._calendarDataSignatures = {}; // Track per-calendar data for change detection
     this._lastUnchangedDataRender = null; // Throttle unchanged-data UI refreshes
     this._hiddenCalendars = new Set(); // Track which calendars are hidden
+    this._customEventColors = {}; // Track local-only custom event colors
+    this._recentCustomColors = []; // Track recently used custom colors
+    this._resolvedPreferenceStorageKey = null; // Track the resolved storage slot across card reconfiguration
     this._calendarCapabilities = {}; // Track calendar capabilities
     this._activeLanguage = DEFAULT_LANGUAGE;
     this._hasCustomTitle = false;
@@ -591,15 +605,163 @@ class SkylightCalendarCard extends HTMLElement {
     return 'default';
   }
 
-  getPreferenceStorageKey() {
-    const dashboardScope = this.getDashboardScopeKey();
-    const baseKey = this._config.preference_storage_key || (this._config.entities || []).join('|');
+  getPreferenceStoragePrefix() {
+    return `skylight-calendar-card:${this.getDashboardScopeKey()}:`;
+  }
+
+  getConfiguredPreferenceStorageBaseKey() {
+    const configuredKey = typeof this._config?.preference_storage_key === 'string'
+      ? this._config.preference_storage_key.trim()
+      : '';
+    if (configuredKey) {
+      return configuredKey;
+    }
+
+    const entities = Array.isArray(this._config?.entities)
+      ? this._config.entities.filter((entityId) => typeof entityId === 'string' && entityId.trim())
+      : [];
+    const baseKey = entities.join('|');
 
     if (!baseKey) {
       return null;
     }
 
-    return `skylight-calendar-card:${dashboardScope}:${baseKey}`;
+    return baseKey;
+  }
+
+  getPreferenceStorageKey() {
+    const baseKey = this.getConfiguredPreferenceStorageBaseKey();
+
+    if (typeof this._config?.preference_storage_key === 'string' && this._config.preference_storage_key.trim()) {
+      return baseKey ? `${this.getPreferenceStoragePrefix()}${baseKey}` : null;
+    }
+
+    if (this._resolvedPreferenceStorageKey) {
+      return this._resolvedPreferenceStorageKey;
+    }
+
+    return baseKey ? `${this.getPreferenceStoragePrefix()}${baseKey}` : null;
+  }
+
+  readPersistedPreferencesPayload(storageKey) {
+    if (!storageKey) return null;
+
+    try {
+      const raw = window.localStorage?.getItem(storageKey);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (error) {
+      console.warn(`Failed to read persisted calendar preferences for ${storageKey}:`, error);
+      return null;
+    }
+  }
+
+  extractPersistedPreferenceEntityIds(parsed) {
+    const entityIds = new Set();
+
+    if (Array.isArray(parsed?.meta?.entities)) {
+      parsed.meta.entities
+        .filter((entityId) => typeof entityId === 'string' && entityId.startsWith('calendar.'))
+        .forEach((entityId) => entityIds.add(entityId));
+    }
+
+    if (Array.isArray(parsed?.hiddenCalendars)) {
+      parsed.hiddenCalendars
+        .filter((entityId) => typeof entityId === 'string' && entityId.startsWith('calendar.'))
+        .forEach((entityId) => entityIds.add(entityId));
+    }
+
+    if (parsed?.customEventColors && typeof parsed.customEventColors === 'object' && !Array.isArray(parsed.customEventColors)) {
+      Object.keys(parsed.customEventColors).forEach((storageKey) => {
+        const parts = String(storageKey || '').split('|');
+        const entityId = parts[1];
+        if (typeof entityId === 'string' && entityId.startsWith('calendar.')) {
+          entityIds.add(entityId);
+        }
+      });
+    }
+
+    return Array.from(entityIds);
+  }
+
+  isPersistedPreferencesEffectivelyEmpty(parsed) {
+    if (!parsed || typeof parsed !== 'object') {
+      return true;
+    }
+
+    const hiddenCount = Array.isArray(parsed.hiddenCalendars) ? parsed.hiddenCalendars.length : 0;
+    const recentCount = Array.isArray(parsed.recentCustomColors) ? parsed.recentCustomColors.length : 0;
+    const customColorCount = parsed.customEventColors && typeof parsed.customEventColors === 'object' && !Array.isArray(parsed.customEventColors)
+      ? Object.keys(parsed.customEventColors).length
+      : 0;
+
+    return hiddenCount === 0 && recentCount === 0 && customColorCount === 0;
+  }
+
+  scorePersistedPreferencesMatch(parsed) {
+    const currentEntities = Array.isArray(this._config?.entities)
+      ? this._config.entities.filter((entityId) => typeof entityId === 'string' && entityId.startsWith('calendar.'))
+      : [];
+    const candidateEntities = this.extractPersistedPreferenceEntityIds(parsed);
+
+    if (currentEntities.length === 0 || candidateEntities.length === 0) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    const currentEntitySet = new Set(currentEntities);
+    const sharedCount = candidateEntities.filter((entityId) => currentEntitySet.has(entityId)).length;
+    if (sharedCount === 0) {
+      return Number.NEGATIVE_INFINITY;
+    }
+
+    let score = sharedCount * 100;
+    score -= Math.abs(candidateEntities.length - currentEntities.length) * 10;
+
+    const currentTitle = typeof this._config?.title === 'string' ? this._config.title.trim() : '';
+    const storedTitle = typeof parsed?.meta?.title === 'string' ? parsed.meta.title.trim() : '';
+    if (currentTitle && storedTitle && currentTitle === storedTitle) {
+      score += 25;
+    }
+
+    if (parsed?.meta?.cardType === 'skylight-calendar-card') {
+      score += 10;
+    }
+
+    return score;
+  }
+
+  findBestPersistedPreferencesMatch({ excludeStorageKeys = [] } = {}) {
+    const prefix = this.getPreferenceStoragePrefix();
+    const excluded = new Set(excludeStorageKeys.filter(Boolean));
+    const storage = window.localStorage;
+    if (!storage) return null;
+
+    let bestMatch = null;
+
+    for (let index = 0; index < storage.length; index += 1) {
+      const storageKey = storage.key(index);
+      if (!storageKey || excluded.has(storageKey) || !storageKey.startsWith(prefix)) {
+        continue;
+      }
+
+      const parsed = this.readPersistedPreferencesPayload(storageKey);
+      if (!parsed) {
+        continue;
+      }
+
+      const score = this.scorePersistedPreferencesMatch(parsed);
+      if (!Number.isFinite(score)) {
+        continue;
+      }
+
+      if (!bestMatch || score > bestMatch.score) {
+        bestMatch = { storageKey, parsed, score };
+      }
+    }
+
+    return bestMatch;
   }
 
   normalizeDashboardPath(pathValue) {
@@ -702,17 +864,58 @@ class SkylightCalendarCard extends HTMLElement {
 
   loadPersistedPreferences() {
     const storageKey = this.getPreferenceStorageKey();
-    if (!storageKey) return;
+    const hasExplicitStorageKey = typeof this._config?.preference_storage_key === 'string' && this._config.preference_storage_key.trim();
+    if (!storageKey && hasExplicitStorageKey) return;
 
     try {
-      const raw = window.localStorage?.getItem(storageKey);
-      if (!raw) return;
+      let resolvedStorageKey = storageKey;
+      let parsed = resolvedStorageKey ? this.readPersistedPreferencesPayload(resolvedStorageKey) : null;
 
-      const parsed = JSON.parse(raw);
+      if (!hasExplicitStorageKey) {
+        const shouldAttemptRecovery = !parsed || this.isPersistedPreferencesEffectivelyEmpty(parsed);
+        if (shouldAttemptRecovery) {
+          const bestMatch = this.findBestPersistedPreferencesMatch({
+            excludeStorageKeys: resolvedStorageKey ? [resolvedStorageKey] : []
+          });
+
+          if (bestMatch && (!parsed || bestMatch.score > this.scorePersistedPreferencesMatch(parsed))) {
+            resolvedStorageKey = bestMatch.storageKey;
+            parsed = bestMatch.parsed;
+          }
+        }
+      }
+
+      if (!parsed) return;
+
+      if (!hasExplicitStorageKey && resolvedStorageKey) {
+        this._resolvedPreferenceStorageKey = resolvedStorageKey;
+      }
 
       if (Array.isArray(parsed.hiddenCalendars)) {
         const knownEntities = new Set(this._config.entities || []);
         this._hiddenCalendars = new Set(parsed.hiddenCalendars.filter((entityId) => knownEntities.has(entityId)));
+      }
+
+      if (parsed.customEventColors && typeof parsed.customEventColors === 'object' && !Array.isArray(parsed.customEventColors)) {
+        this._customEventColors = Object.entries(parsed.customEventColors).reduce((acc, [key, color]) => {
+          const normalizedKey = String(key || '').trim();
+          const normalizedColor = this.normalizeSingleColor(color);
+          if (normalizedKey && normalizedColor) {
+            acc[normalizedKey] = normalizedColor;
+          }
+          return acc;
+        }, {});
+      } else {
+        this._customEventColors = {};
+      }
+
+      if (Array.isArray(parsed.recentCustomColors)) {
+        this._recentCustomColors = parsed.recentCustomColors
+          .map((color) => this.colorToHex(color) || this.normalizeHexColorInput(color))
+          .filter((color) => typeof color === 'string' && !!color)
+          .slice(0, 12);
+      } else {
+        this._recentCustomColors = [];
       }
     } catch (error) {
       console.warn('Failed to load persisted calendar preferences:', error);
@@ -725,7 +928,16 @@ class SkylightCalendarCard extends HTMLElement {
 
     try {
       const payload = {
-        hiddenCalendars: Array.from(this._hiddenCalendars)
+        hiddenCalendars: Array.from(this._hiddenCalendars),
+        customEventColors: this._customEventColors,
+        recentCustomColors: this._recentCustomColors,
+        meta: {
+          cardType: 'skylight-calendar-card',
+          version: 2,
+          title: this._config?.title || null,
+          entities: Array.isArray(this._config?.entities) ? [...this._config.entities] : [],
+          dashboardScope: this.getDashboardScopeKey()
+        }
       };
       window.localStorage?.setItem(storageKey, JSON.stringify(payload));
     } catch (error) {
@@ -803,6 +1015,7 @@ class SkylightCalendarCard extends HTMLElement {
 
   setConfig(config) {
     const previousHeaderWeatherSensor = this._config?.header_weather_sensor || null;
+    const previousResolvedPreferenceStorageKey = this._resolvedPreferenceStorageKey;
     if (!config.entities || !Array.isArray(config.entities)) {
       throw new Error('You need to define calendar entities');
     }
@@ -931,6 +1144,9 @@ class SkylightCalendarCard extends HTMLElement {
       event_styles: normalizedEventStyles,
       day_styles: normalizedDayStyles
     };
+    this._resolvedPreferenceStorageKey = this._config.preference_storage_key
+      ? null
+      : previousResolvedPreferenceStorageKey;
     this._viewMode = this._config.default_view;
     this.applyThemeMode(this._config.color_scheme);
     this._hiddenCalendars = new Set(
@@ -1598,6 +1814,176 @@ class SkylightCalendarCard extends HTMLElement {
 
   getEventIdentityKey(entityId, event) {
     return `${entityId}|${event.uid || ''}|${event.recurring_event_id || ''}|${event.start?.dateTime || event.start?.date || event.start || ''}|${event.end?.dateTime || event.end?.date || event.end || ''}|${event.summary || ''}`;
+  }
+
+  isRecurringEventInstance(event) {
+    return !!(event?.rrule || event?.recurring_event_id || event?.recurrence_id);
+  }
+
+  getCustomColorSeriesKey(event) {
+    if (!event?.entityId || !this.isRecurringEventInstance(event)) {
+      return null;
+    }
+
+    const seriesToken = event.recurring_event_id || event.uid;
+    if (!seriesToken) {
+      return null;
+    }
+
+    return `series|${event.entityId}|${seriesToken}`;
+  }
+
+  getCustomColorEventKey(event) {
+    if (!event?.entityId) {
+      return null;
+    }
+
+    if (event.uid) {
+      return `event|${event.entityId}|uid:${event.uid}`;
+    }
+
+    return `event|${this.getEventIdentityKey(event.entityId, event)}`;
+  }
+
+  getStoredCustomColor(event) {
+    if (!event) return null;
+
+    const seriesKey = this.getCustomColorSeriesKey(event);
+    if (seriesKey && this._customEventColors[seriesKey]) {
+      return this._customEventColors[seriesKey];
+    }
+
+    const eventKey = this.getCustomColorEventKey(event);
+    if (eventKey && this._customEventColors[eventKey]) {
+      return this._customEventColors[eventKey];
+    }
+
+    return null;
+  }
+
+  hasStoredCustomColor(event) {
+    if (event?.isCombinedCalendarEvent && Array.isArray(event.sourceEvents)) {
+      return event.sourceEvents.some((sourceEvent) => !this._hiddenCalendars.has(sourceEvent.entityId) && !!this.getStoredCustomColor(sourceEvent));
+    }
+
+    return !!this.getStoredCustomColor(event);
+  }
+
+  setStoredCustomColor(event, color) {
+    const storageKey = this.getCustomColorSeriesKey(event) || this.getCustomColorEventKey(event);
+    const normalizedColor = this.colorToHex(color) || this.normalizeSingleColor(color);
+    if (!storageKey || !normalizedColor) {
+      return false;
+    }
+
+    this.addRecentCustomColor(normalizedColor);
+    this._customEventColors = {
+      ...this._customEventColors,
+      [storageKey]: normalizedColor
+    };
+    this.persistPreferences();
+    return true;
+  }
+
+  clearStoredCustomColor(event) {
+    const candidateKeys = [
+      this.getCustomColorSeriesKey(event),
+      this.getCustomColorEventKey(event)
+    ].filter(Boolean);
+
+    if (candidateKeys.length === 0) {
+      return false;
+    }
+
+    const nextCustomEventColors = { ...this._customEventColors };
+    let changed = false;
+
+    candidateKeys.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(nextCustomEventColors, key)) {
+        delete nextCustomEventColors[key];
+        changed = true;
+      }
+    });
+
+    if (!changed) {
+      return false;
+    }
+
+    this._customEventColors = nextCustomEventColors;
+    this.persistPreferences();
+    return true;
+  }
+
+  getCustomEventColorPresets() {
+    return [
+      '#FF6B6B',
+      '#EF4444',
+      '#DC2626',
+      '#B91C1C',
+      '#F97316',
+      '#EA580C',
+      '#FB923C',
+      '#F59E0B',
+      '#4ECDC4',
+      '#14B8A6',
+      '#0D9488',
+      '#10B981',
+      '#22C55E',
+      '#84CC16',
+      '#A3E635',
+      '#45B7D1',
+      '#06B6D4',
+      '#0EA5E9',
+      '#3B82F6',
+      '#2563EB',
+      '#1D4ED8',
+      '#FFA07A',
+      '#98D8C8',
+      '#F7DC6F',
+      '#BB8FCE',
+      '#85C1E2',
+      '#6366F1',
+      '#4F46E5',
+      '#7C3AED',
+      '#8B5CF6',
+      '#A855F7',
+      '#EC4899'
+    ];
+  }
+
+  normalizeHexColorInput(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const withHash = raw.startsWith('#') ? raw : `#${raw}`;
+    return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toUpperCase() : null;
+  }
+
+  getRecentCustomColors() {
+    return Array.isArray(this._recentCustomColors) ? this._recentCustomColors : [];
+  }
+
+  addRecentCustomColor(color) {
+    const normalizedColor = this.colorToHex(color) || this.normalizeHexColorInput(color);
+    if (!normalizedColor) {
+      return;
+    }
+
+    this._recentCustomColors = [
+      normalizedColor,
+      ...this.getRecentCustomColors().filter((entry) => entry !== normalizedColor)
+    ].slice(0, 12);
+  }
+
+  getResolvedSingleEventBackgroundColor(event, candidates = null) {
+    if (!event) return null;
+
+    const customColor = this.getStoredCustomColor(event);
+    if (customColor) {
+      return customColor;
+    }
+
+    const resolvedCandidates = candidates || this.getSingleEventStyleCandidates(event);
+    return resolvedCandidates.background_color?.value || event.color;
   }
 
   async fetchEventsInRange(startDate, endDate) {
@@ -4080,6 +4466,143 @@ class SkylightCalendarCard extends HTMLElement {
         gap: 12px;
       }
 
+      .custom-color-button-swatch {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        background: var(--custom-color-swatch, #3b82f6);
+        border: 1px solid rgba(17, 24, 39, 0.15);
+        flex: 0 0 auto;
+      }
+
+      .btn-custom-color {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        background: var(--custom-color-button-bg, #f3f4f6);
+        color: var(--custom-color-button-fg, #374151);
+        border: 1px solid rgba(17, 24, 39, 0.08);
+      }
+
+      .btn-custom-color:hover {
+        filter: brightness(0.97);
+        transform: translateY(-1px);
+      }
+
+      .custom-color-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, 40px);
+        gap: 12px;
+        margin-top: 6px;
+        justify-content: start;
+      }
+
+      .custom-color-section {
+        margin-top: 18px;
+      }
+
+      .custom-color-section:first-child {
+        margin-top: 0;
+      }
+
+      .custom-color-section-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #6b7280;
+        margin-bottom: 10px;
+      }
+
+      .custom-color-option {
+        width: 100%;
+        aspect-ratio: 1;
+        border-radius: 12px;
+        border: 2px solid transparent;
+        background: var(--custom-color-option);
+        cursor: pointer;
+        transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+      }
+
+      .custom-color-option:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+      }
+
+      .custom-color-option.selected {
+        border-color: #111827;
+        box-shadow: 0 0 0 3px rgba(17, 24, 39, 0.12);
+      }
+
+      .custom-color-current-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 18px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: #f9fafb;
+      }
+
+      .custom-color-current-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: #6b7280;
+      }
+
+      .custom-color-preview {
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        background: var(--custom-color-preview, #3b82f6);
+        border: 1px solid rgba(17, 24, 39, 0.15);
+        flex: 0 0 auto;
+      }
+
+      .custom-color-current-value {
+        font-size: 13px;
+        color: #374151;
+        word-break: break-word;
+      }
+
+      .custom-color-input-row {
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr) auto;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .custom-color-picker-input {
+        width: 56px;
+        height: 44px;
+        border: none;
+        padding: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .custom-color-picker-input::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+
+      .custom-color-picker-input::-webkit-color-swatch {
+        border: 1px solid rgba(17, 24, 39, 0.12);
+        border-radius: 10px;
+      }
+
+      .custom-color-picker-input::-moz-color-swatch {
+        border: 1px solid rgba(17, 24, 39, 0.12);
+        border-radius: 10px;
+      }
+
+      .custom-color-hex-input {
+        text-transform: uppercase;
+      }
+
+      .custom-color-error {
+        margin-top: 10px;
+      }
+
       .confirm-dialog {
         background: white;
         border-radius: 12px;
@@ -4389,6 +4912,25 @@ class SkylightCalendarCard extends HTMLElement {
         color: #e2e8f0;
         border-color: #606b7b;
         box-shadow: none;
+      }
+
+      .calendar-container.dark-mode .custom-color-current-row {
+        background: #30363f;
+      }
+
+      .calendar-container.dark-mode .custom-color-current-label,
+      .calendar-container.dark-mode .custom-color-current-value,
+      .calendar-container.dark-mode .custom-color-section-title {
+        color: #d6dee8;
+      }
+
+      .calendar-container.dark-mode .custom-color-option.selected {
+        border-color: #f8fafc;
+        box-shadow: 0 0 0 3px rgba(248, 250, 252, 0.14);
+      }
+
+      .calendar-container.dark-mode .btn-custom-color {
+        border-color: rgba(248, 250, 252, 0.14);
       }
 
       .calendar-container.dark-mode .modal-header,
@@ -5536,11 +6078,16 @@ class SkylightCalendarCard extends HTMLElement {
   }
 
   getVisibleCalendarBadgesForEvent(event) {
-    if (event.isCombinedCalendarEvent && Array.isArray(event.sourceCalendars)) {
-      return event.sourceCalendars.filter(calendar => !this._hiddenCalendars.has(calendar.entityId));
+    if (event.isCombinedCalendarEvent && Array.isArray(event.sourceEvents)) {
+      return event.sourceEvents
+        .filter((sourceEvent) => !this._hiddenCalendars.has(sourceEvent.entityId))
+        .map((sourceEvent) => ({
+          entityId: sourceEvent.entityId,
+          color: this.getResolvedSingleEventBackgroundColor(sourceEvent)
+        }));
     }
 
-    return [{ entityId: event.entityId, color: event.color }];
+    return [{ entityId: event.entityId, color: this.getResolvedSingleEventBackgroundColor(event) || event.color }];
   }
 
   renderEventIcon(event) {
@@ -5761,6 +6308,10 @@ class SkylightCalendarCard extends HTMLElement {
 
   getEventBubbleFontColor(event) {
     if (!event) return 'white';
+    if (this.hasStoredCustomColor(event)) {
+      return this.getContractColor(this.getEventBackgroundColor(event));
+    }
+
     const styleOverrides = this.getEventStyleOverrides(event);
     if (styleOverrides?.event_font_color) {
       return styleOverrides.event_font_color;
@@ -6335,7 +6886,7 @@ class SkylightCalendarCard extends HTMLElement {
       }));
 
       const backgroundColors = sourceCandidates.map(({ sourceEvent, candidates }) =>
-        candidates.background_color?.value || sourceEvent.color
+        this.getResolvedSingleEventBackgroundColor(sourceEvent, candidates)
       );
       const uniqueBackgroundCount = new Set(backgroundColors).size;
       const hasDuplicateBackgroundColors = uniqueBackgroundCount !== backgroundColors.length;
@@ -6366,7 +6917,7 @@ class SkylightCalendarCard extends HTMLElement {
       acc[key] = meta.value;
       return acc;
     }, {});
-    overrides.backgroundColors = [overrides.background_color || event.color];
+    overrides.backgroundColors = [this.getResolvedSingleEventBackgroundColor(event, candidates)];
     overrides.hasDuplicateBackgroundColors = false;
     return overrides;
   }
@@ -8453,6 +9004,261 @@ class SkylightCalendarCard extends HTMLElement {
     });
   }
 
+  showCombinedCustomColorSelectionModal(event, onCloseBack = null) {
+    const modal = this.getRootElementById('event-modal');
+    const content = this.getRootElementById('modal-content');
+    const sourceEvents = (event.sourceEvents || []).filter((sourceEvent) => !this._hiddenCalendars.has(sourceEvent.entityId));
+
+    if (sourceEvents.length === 0) {
+      this.showEventModal(event, onCloseBack);
+      return;
+    }
+
+    const returnToEventModal = () => this.showEventModal(event, onCloseBack);
+
+    content.innerHTML = `
+      <div class="confirm-dialog">
+        <h3 class="confirm-title">${this.t('customColor')}</h3>
+        <p class="confirm-message">Select which calendar copy to color.</p>
+
+        <div class="recurring-options">
+          ${sourceEvents.map((sourceEvent, index) => `
+            <label class="recurring-option">
+              <input type="radio" name="combined-custom-color-option" class="combined-custom-color-option" data-index="${index}" ${index === 0 ? 'checked' : ''} />
+              <div class="recurring-option-label">
+                <div class="recurring-option-title">${this.escapeHtml(this.getCalendarName(sourceEvent.entityId))}</div>
+                <div class="recurring-option-description">${this.escapeHtml(sourceEvent.summary || this.t('untitledEvent'))}</div>
+              </div>
+              <span class="custom-color-button-swatch" style="--custom-color-swatch: ${this.getResolvedSingleEventBackgroundColor(sourceEvent)};"></span>
+            </label>
+          `).join('')}
+        </div>
+
+        <div class="confirm-actions">
+          <button class="btn btn-secondary" id="cancel-combined-custom-color-btn">${this.t('cancel')}</button>
+          <button class="btn btn-primary" id="confirm-combined-custom-color-btn">${this.t('customColor')}</button>
+        </div>
+      </div>
+    `;
+
+    modal.classList.add('show');
+    this.setModalBackHandler(returnToEventModal);
+
+    this.getRootElementById('cancel-combined-custom-color-btn')?.addEventListener('click', () => {
+      this._activeModalBackHandler = null;
+      modal.classList.remove('show');
+      returnToEventModal();
+    });
+
+    this.getRootElementById('confirm-combined-custom-color-btn')?.addEventListener('click', () => {
+      const selectedIndex = Number.parseInt(
+        this._root.querySelector('input[name="combined-custom-color-option"]:checked')?.getAttribute('data-index'),
+        10
+      );
+
+      if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= sourceEvents.length) {
+        return;
+      }
+
+      const selectedEvent = sourceEvents[selectedIndex];
+      this._activeModalBackHandler = null;
+      modal.classList.remove('show');
+      this.showCustomColorModal(selectedEvent, {
+        onCloseBack: () => this.showCombinedCustomColorSelectionModal(event, onCloseBack),
+        onApplied: returnToEventModal
+      });
+    });
+  }
+
+  showCustomColorModal(event, { onCloseBack = null, onApplied = null } = {}) {
+    const modal = this.getRootElementById('event-modal');
+    const content = this.getRootElementById('modal-content');
+    const currentCustomColor = this.getStoredCustomColor(event);
+    const previewColor = currentCustomColor || this.getEventBackgroundColor(event) || event?.color || '#3b82f6';
+    const normalizedCurrentCustomColor = this.colorToHex(currentCustomColor) || this.normalizeHexColorInput(currentCustomColor);
+    const initialPickerColor = (this.colorToHex(previewColor) || '#3B82F6').toLowerCase();
+    const colorHint = this.isRecurringEventInstance(event) ? this.t('customColorSeriesHint') : this.t('customColorEventHint');
+    const presetButtons = this.getCustomEventColorPresets()
+      .map((color) => `
+        <button
+          type="button"
+          class="custom-color-option ${normalizedCurrentCustomColor === color ? 'selected' : ''}"
+          data-custom-event-color="${color}"
+          style="--custom-color-option: ${color};"
+          aria-label="${this.t('customColor')} ${color}"
+          title="${color}">
+        </button>
+      `)
+      .join('');
+    const recentButtons = this.getRecentCustomColors()
+      .map((color) => `
+        <button
+          type="button"
+          class="custom-color-option ${normalizedCurrentCustomColor === color ? 'selected' : ''}"
+          data-custom-event-color="${color}"
+          style="--custom-color-option: ${color};"
+          aria-label="${this.t('recentColors')} ${color}"
+          title="${color}">
+        </button>
+      `)
+      .join('');
+
+    content.innerHTML = `
+      <div class="modal-header">
+        <div>
+          <h3 class="modal-title">${this.t('customColorTitle')}</h3>
+          <div class="confirm-message">${this.escapeHtml(colorHint)}</div>
+        </div>
+        <button class="modal-close" id="close-modal">×</button>
+      </div>
+      <div class="modal-body">
+        ${recentButtons ? `
+          <div class="custom-color-section">
+            <div class="custom-color-section-title">${this.t('recentColors')}</div>
+            <div class="custom-color-grid">
+              ${recentButtons}
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="custom-color-section">
+          <div class="custom-color-section-title">${this.t('customColor')}</div>
+          <div class="custom-color-grid">
+            ${presetButtons}
+          </div>
+        </div>
+
+        <div class="custom-color-section">
+          <div class="custom-color-section-title">${this.t('customColorInput')}</div>
+          <div class="custom-color-input-row">
+            <input type="color" class="custom-color-picker-input" id="custom-color-native-input" value="${initialPickerColor}" aria-label="${this.t('customColorInput')}">
+            <input type="text" class="form-input custom-color-hex-input" id="custom-color-hex-input" value="${initialPickerColor.toUpperCase()}" placeholder="#3F51B5" spellcheck="false" autocapitalize="characters" />
+            <button class="btn btn-primary" id="apply-custom-color-btn">${this.t('applyCustomColor')}</button>
+          </div>
+          <div id="custom-color-form-error" class="error-message custom-color-error" style="display:none;"></div>
+        </div>
+
+        <div class="custom-color-current-row">
+          <span class="custom-color-current-label">${this.t('customColor')}</span>
+          <span class="custom-color-preview" id="custom-color-preview" style="--custom-color-preview: ${previewColor};"></span>
+          <span class="custom-color-current-value" id="custom-color-current-value">${this.escapeHtml(currentCustomColor || this.t('usingDefaultColor'))}</span>
+        </div>
+
+        <div class="modal-actions">
+          <div class="modal-actions-left">
+            ${currentCustomColor ? `<button class="btn btn-secondary" id="clear-custom-color-btn">${this.t('clearCustomColor')}</button>` : ''}
+          </div>
+          <div class="modal-actions-right">
+            <button class="btn btn-secondary" id="cancel-custom-color-btn">${this.t('cancel')}</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    modal.classList.add('show');
+    this.setModalBackHandler(onCloseBack);
+
+    const closeCustomColorModal = () => {
+      if (this._activeModalBackHandler) {
+        const backHandler = this._activeModalBackHandler;
+        this._activeModalBackHandler = null;
+        backHandler();
+      } else {
+        modal.classList.remove('show');
+      }
+    };
+
+    const customColorPreview = this.getRootElementById('custom-color-preview');
+    const customColorValue = this.getRootElementById('custom-color-current-value');
+    const customColorNativeInput = this.getRootElementById('custom-color-native-input');
+    const customColorHexInput = this.getRootElementById('custom-color-hex-input');
+    const customColorFormError = this.getRootElementById('custom-color-form-error');
+
+    const hideCustomColorError = () => {
+      if (customColorFormError) {
+        customColorFormError.style.display = 'none';
+        customColorFormError.textContent = '';
+      }
+    };
+
+    const showCustomColorError = (message) => {
+      if (customColorFormError) {
+        customColorFormError.textContent = message;
+        customColorFormError.style.display = 'block';
+      }
+    };
+
+    const syncCustomColorDraft = (color) => {
+      const normalizedHex = this.normalizeHexColorInput(color);
+      if (!normalizedHex) {
+        return false;
+      }
+
+      if (customColorNativeInput) customColorNativeInput.value = normalizedHex.toLowerCase();
+      if (customColorHexInput) customColorHexInput.value = normalizedHex;
+      if (customColorPreview) customColorPreview.style.setProperty('--custom-color-preview', normalizedHex);
+      if (customColorValue) customColorValue.textContent = normalizedHex;
+      hideCustomColorError();
+      return true;
+    };
+
+    const applyCustomColorSelection = (color) => {
+      if (!this.setStoredCustomColor(event, color)) {
+        showCustomColorError(this.t('invalidHexColor'));
+        return;
+      }
+      completeCustomColorChange();
+    };
+
+    const completeCustomColorChange = () => {
+      this._activeModalBackHandler = null;
+      modal.classList.remove('show');
+      this.render();
+      if (typeof onApplied === 'function') {
+        onApplied();
+      } else {
+        this.showEventModal(event);
+      }
+    };
+
+    this.getRootElementById('close-modal')?.addEventListener('click', closeCustomColorModal);
+    this.getRootElementById('cancel-custom-color-btn')?.addEventListener('click', closeCustomColorModal);
+
+    this._root.querySelectorAll('[data-custom-event-color]').forEach((button) => {
+      button.addEventListener('click', () => {
+        applyCustomColorSelection(button.getAttribute('data-custom-event-color'));
+      });
+    });
+
+    customColorNativeInput?.addEventListener('input', (inputEvent) => {
+      syncCustomColorDraft(inputEvent.target.value);
+    });
+
+    customColorHexInput?.addEventListener('input', (inputEvent) => {
+      const normalizedHex = this.normalizeHexColorInput(inputEvent.target.value);
+      if (normalizedHex) {
+        syncCustomColorDraft(normalizedHex);
+      }
+    });
+
+    this.getRootElementById('apply-custom-color-btn')?.addEventListener('click', () => {
+      const normalizedHex = this.normalizeHexColorInput(customColorHexInput?.value);
+      if (!normalizedHex) {
+        showCustomColorError(this.t('invalidHexColor'));
+        return;
+      }
+      applyCustomColorSelection(normalizedHex);
+    });
+
+    this.getRootElementById('clear-custom-color-btn')?.addEventListener('click', () => {
+      if (!this.clearStoredCustomColor(event)) {
+        closeCustomColorModal();
+        return;
+      }
+      completeCustomColorChange();
+    });
+  }
+
 
   showDeleteConfirmation(event, selectedEvents = null) {
     const modal = this.getRootElementById('event-modal');
@@ -8551,6 +9357,7 @@ class SkylightCalendarCard extends HTMLElement {
 
             if (!targetIsRecurring) {
               await this.deleteEvent(targetEvent.entityId, targetEvent.uid);
+              this.clearStoredCustomColor(targetEvent);
               continue;
             }
 
@@ -8563,6 +9370,7 @@ class SkylightCalendarCard extends HTMLElement {
             } else if (selectedOption === 'all') {
               // Delete entire series
               await this.deleteEvent(targetEvent.entityId, targetEvent.uid);
+              this.clearStoredCustomColor(targetEvent);
             } else {
               // Fallback for recurring targets without recurrence_id
               await this.deleteEvent(targetEvent.entityId, targetEvent.uid);
@@ -8572,6 +9380,7 @@ class SkylightCalendarCard extends HTMLElement {
           for (const targetEvent of deleteTargets) {
             // Delete single event
             await this.deleteEvent(targetEvent.entityId, targetEvent.uid);
+            this.clearStoredCustomColor(targetEvent);
           }
         }
 
@@ -8642,7 +9451,7 @@ class SkylightCalendarCard extends HTMLElement {
     const visibleBadges = this.getVisibleCalendarBadgesForEvent(event);
     const combinedBadgeHtml = event.isCombinedCalendarEvent
       ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">${visibleBadges.map(calendar => `<span class="modal-calendar-badge" style="background: ${calendar.color}; color: white; display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px;">${this.escapeHtml(this.getCalendarName(calendar.entityId))}</span>`).join('')}</div>`
-      : `<div class="modal-calendar-badge" style="background: ${event.color}; color: white; display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; margin-top: 8px;">${this.escapeHtml(calendarName)}</div>`;
+      : `<div class="modal-calendar-badge" style="background: ${this.getEventBackgroundColor(event)}; color: ${this.getContractColor(this.getEventBackgroundColor(event))}; display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; margin-top: 8px;">${this.escapeHtml(calendarName)}</div>`;
 
     // For edit/delete to work, we need:
     // 1. Event management enabled
@@ -8656,6 +9465,10 @@ class SkylightCalendarCard extends HTMLElement {
     // WebSocket delete works for Google Calendar and other integrations
     const canEdit = canModify;
     const canDelete = canModify; // WebSocket delete works for all calendars including Google
+    const canCustomColor = true;
+    const customColor = this.getStoredCustomColor(event);
+    const customColorButtonColor = customColor || this.getEventBackgroundColor(event);
+    const customColorButtonTextColor = this.getContractColor(customColorButtonColor);
 
     content.innerHTML = `
       <div class="modal-header">
@@ -8723,12 +9536,13 @@ class SkylightCalendarCard extends HTMLElement {
           </div>
         ` : ''}
 
-        ${(canEdit || canDelete) ? `
+        ${(canEdit || canDelete || canCustomColor) ? `
           <div class="modal-actions">
             <div class="modal-actions-left">
               ${canDelete ? `<button class="btn btn-danger" id="delete-event-btn">${this.t('delete')}</button>` : ''}
             </div>
             <div class="modal-actions-right">
+              ${canCustomColor ? `<button class="btn btn-custom-color" id="custom-color-btn" style="--custom-color-button-bg: ${customColorButtonColor}; --custom-color-button-fg: ${customColorButtonTextColor};">${this.t('customColor')}</button>` : ''}
               ${canEdit ? `<button class="btn btn-primary" id="edit-event-btn">${this.t('editEvent')}</button>` : ''}
             </div>
           </div>
@@ -8759,6 +9573,22 @@ class SkylightCalendarCard extends HTMLElement {
         return;
       }
       this.showEditConfirmation(event, startDate, endDate, isAllDay);
+    });
+
+    this.getRootElementById('custom-color-btn')?.addEventListener('click', () => {
+      this._activeModalBackHandler = null;
+      modal.classList.remove('show');
+      const reopenEventModal = () => this.showEventModal(event, onCloseBack);
+
+      if (event.isCombinedCalendarEvent && Array.isArray(event.sourceEvents) && event.sourceEvents.length > 1) {
+        this.showCombinedCustomColorSelectionModal(event, onCloseBack);
+        return;
+      }
+
+      this.showCustomColorModal(event, {
+        onCloseBack: reopenEventModal,
+        onApplied: reopenEventModal
+      });
     });
 
     // Delete button
