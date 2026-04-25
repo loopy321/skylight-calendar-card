@@ -70,7 +70,6 @@ const TRANSLATIONS = {
       applyCustomColor: 'Apply Color',
       invalidHexColor: 'Enter a valid 6-digit hex color.',
       removeRecentColor: 'Remove recent color',
-      customColorAdminRequired: 'Shared custom colors require an administrator account with dashboard write access. Changes from this account stay local to this device.',
       usingDefaultColor: 'Using default styling',
       saveChanges: 'Save Changes',
       saving: 'Saving...',
@@ -474,42 +473,57 @@ const translate = (language, key, params = {}) => {
 };
 
 // ============================================================================
+// COLOR CONSTANTS
+// ============================================================================
+
+const NAMED_COLORS = {
+  black: '#000000',
+  white: '#FFFFFF',
+  red: '#FF0000',
+  lime: '#00FF00',
+  green: '#008000',
+  'lime/green': '#00FF00',
+  limegreen: '#00FF00',
+  blue: '#0000FF',
+  yellow: '#FFFF00',
+  cyan: '#00FFFF',
+  aqua: '#00FFFF',
+  'cyan/aqua': '#00FFFF',
+  magenta: '#FF00FF',
+  fuchsia: '#FF00FF',
+  'magenta/fuchsia': '#FF00FF',
+  silver: '#C0C0C0',
+  gray: '#808080',
+  grey: '#808080',
+  maroon: '#800000',
+  olive: '#808000',
+  darkgreen: '#008000',
+  'dark green': '#008000',
+  'green dark': '#008000',
+  greendark: '#008000',
+  purple: '#800080',
+  teal: '#008080',
+  navy: '#000080',
+  orange: '#FFA500',
+  pink: '#FFC0CB'
+};
+
+const CUSTOM_EVENT_COLOR_PRESETS = [
+  '#FF6B6B', '#EF4444', '#DC2626', '#B91C1C',
+  '#F97316', '#EA580C', '#FB923C', '#F59E0B',
+  '#4ECDC4', '#14B8A6', '#0D9488', '#10B981',
+  '#22C55E', '#84CC16', '#A3E635', '#45B7D1',
+  '#06B6D4', '#0EA5E9', '#3B82F6', '#2563EB',
+  '#1D4ED8', '#FFA07A', '#98D8C8', '#F7DC6F',
+  '#BB8FCE', '#85C1E2', '#6366F1', '#4F46E5',
+  '#7C3AED', '#8B5CF6', '#A855F7', '#EC4899'
+];
+
+// ============================================================================
 // MAIN CALENDAR CARD CLASS
 // ============================================================================
 
 class SkylightCalendarCard extends HTMLElement {
-  static COMMON_NAMED_COLORS = {
-    black: '#000000',
-    white: '#FFFFFF',
-    red: '#FF0000',
-    lime: '#00FF00',
-    green: '#008000',
-    'lime/green': '#00FF00',
-    limegreen: '#00FF00',
-    blue: '#0000FF',
-    yellow: '#FFFF00',
-    cyan: '#00FFFF',
-    aqua: '#00FFFF',
-    'cyan/aqua': '#00FFFF',
-    magenta: '#FF00FF',
-    fuchsia: '#FF00FF',
-    'magenta/fuchsia': '#FF00FF',
-    silver: '#C0C0C0',
-    gray: '#808080',
-    grey: '#808080',
-    maroon: '#800000',
-    olive: '#808000',
-    darkgreen: '#008000',
-    'dark green': '#008000',
-    'green dark': '#008000',
-    greendark: '#008000',
-    purple: '#800080',
-    teal: '#008080',
-    navy: '#000080',
-    orange: '#FFA500',
-    pink: '#FFC0CB'
-  };
-
   constructor() {
     super();
     this._root = this;
@@ -524,26 +538,9 @@ class SkylightCalendarCard extends HTMLElement {
     this._calendarDataSignatures = {}; // Track per-calendar data for change detection
     this._lastUnchangedDataRender = null; // Throttle unchanged-data UI refreshes
     this._hiddenCalendars = new Set(); // Track which calendars are hidden
-    this._customEventColors = {}; // Track local-only custom event colors
+    this._customEventColors = {}; // Track local custom event colors (per series/event)
     this._recentCustomColors = []; // Track recently used custom colors
     this._resolvedPreferenceStorageKey = null; // Track the resolved storage slot across card reconfiguration
-    this._sharedPreferenceSyncInFlight = null; // Track dashboard-backed preference persistence
-    this._sharedPreferenceSaveTimer = null; // Delay shared preference writes until the UI is idle enough to tolerate a dashboard save
-    this._queuedSharedPreferenceState = null; // Track the latest shared preference payload waiting to be saved
-    this._sharedPreferenceSaveDebounceMs = 1200; // Keep a short minimum delay before any shared save attempt
-    this._sharedPreferenceIdleDelayMs = 4000; // Give desktop/browser clients a brief idle window before triggering dashboard rewrites
-    this._sharedPreferenceTabletIdleDelayMs = 30000; // Give tablet/webview clients a much larger idle window before triggering dashboard rewrites
-    this._sharedPreferenceModalRetryDelayMs = 1000; // Retry shared saves periodically while modal flows are still active
-    this._lastSharedPreferenceInteractionAt = Date.now(); // Track the latest user interaction so shared saves can wait for idle time
-    this._pendingSharedPreferenceCardKey = null; // Track the shared card key for unsaved optimistic preference overlays
-    this._pendingSharedCustomEventColors = null; // Track unsaved shared custom event colors shown immediately in the UI
-    this._pendingSharedCustomEventColorMeta = null; // Track unsaved shared custom color metadata shown immediately in the UI
-    this._pendingSharedRecentCustomColors = null; // Track unsaved shared recent colors shown immediately in the UI
-    this._sharedPreferenceMigrationAttempted = false; // Avoid repeated shared preference migration attempts
-    this._sharedPreferenceGarbageCollectionAttempted = false; // Avoid repeated shared preference cleanup attempts per config load
-    this._frontendUserDataLoadInFlight = null; // Track per-user shared preference loads
-    this._sharedUserDataCustomEventColors = {}; // Track per-user shared custom colors synced via HA frontend user data
-    this._sharedUserDataRecentCustomColors = []; // Track per-user shared recent colors synced via HA frontend user data
     this._calendarCapabilities = {}; // Track calendar capabilities
     this._activeLanguage = DEFAULT_LANGUAGE;
     this._hasCustomTitle = false;
@@ -597,24 +594,6 @@ class SkylightCalendarCard extends HTMLElement {
 
       this.updateCompactHeaderWrapState();
       this.updateCalendarBadgesScrollState();
-    };
-    this._handleSharedPreferenceInteraction = () => {
-      this.markSharedPreferenceInteraction();
-    };
-    this._handleSharedPreferenceVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        if (this._queuedSharedPreferenceState) {
-          void this.flushQueuedSharedPreferenceSave({ force: true });
-        }
-        return;
-      }
-
-      this.markSharedPreferenceInteraction();
-    };
-    this._handleSharedPreferencePageHide = () => {
-      if (this._queuedSharedPreferenceState) {
-        void this.flushQueuedSharedPreferenceSave({ force: true });
-      }
     };
   }
 
@@ -682,80 +661,6 @@ class SkylightCalendarCard extends HTMLElement {
     }
 
     return baseKey ? `${this.getPreferenceStoragePrefix()}${baseKey}` : null;
-  }
-
-  isTabletLikeSharedPreferenceClient() {
-    try {
-      if (navigator.maxTouchPoints > 0) {
-        return true;
-      }
-
-      return !!window.matchMedia?.('(pointer: coarse)').matches;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  getSharedPreferenceIdleDelayMs() {
-    return this.isTabletLikeSharedPreferenceClient()
-      ? this._sharedPreferenceTabletIdleDelayMs
-      : this._sharedPreferenceIdleDelayMs;
-  }
-
-  markSharedPreferenceInteraction(timestamp = Date.now()) {
-    this._lastSharedPreferenceInteractionAt = Number.isFinite(timestamp) ? timestamp : Date.now();
-  }
-
-  getRemainingSharedPreferenceIdleMs() {
-    const idleDelayMs = this.getSharedPreferenceIdleDelayMs();
-    if (!(idleDelayMs > 0)) {
-      return 0;
-    }
-
-    const elapsedMs = Date.now() - this._lastSharedPreferenceInteractionAt;
-    return Math.max(0, idleDelayMs - elapsedMs);
-  }
-
-  shouldDeferSharedPreferenceSave({ force = false } = {}) {
-    if (force) {
-      return false;
-    }
-
-    if (this.isEventManagementDialogOpen()) {
-      return true;
-    }
-
-    return this.getRemainingSharedPreferenceIdleMs() > 0;
-  }
-
-  getSharedPreferenceSaveDelayMs({ force = false } = {}) {
-    if (force) {
-      return 0;
-    }
-
-    return Math.max(
-      this._sharedPreferenceSaveDebounceMs,
-      this.isEventManagementDialogOpen() ? this._sharedPreferenceModalRetryDelayMs : 0,
-      this.getRemainingSharedPreferenceIdleMs()
-    );
-  }
-
-  scheduleSharedPreferenceSave({ force = false } = {}) {
-    if (!this._queuedSharedPreferenceState) {
-      return false;
-    }
-
-    if (this._sharedPreferenceSaveTimer) {
-      clearTimeout(this._sharedPreferenceSaveTimer);
-    }
-
-    const delayMs = this.getSharedPreferenceSaveDelayMs({ force });
-    this._sharedPreferenceSaveTimer = setTimeout(() => {
-      this._sharedPreferenceSaveTimer = null;
-      void this.flushQueuedSharedPreferenceSave({ force });
-    }, delayMs);
-
-    return true;
   }
 
   readPersistedPreferencesPayload(storageKey) {
@@ -1032,7 +937,7 @@ class SkylightCalendarCard extends HTMLElement {
 
       if (Array.isArray(parsed.recentCustomColors)) {
         this._recentCustomColors = parsed.recentCustomColors
-          .map((color) => this.colorToHex(color) || this.normalizeHexColorInput(color))
+          .map((color) => this.toCanonicalHex(color))
           .filter((color) => typeof color === 'string' && !!color)
           .slice(0, 12);
       } else {
@@ -1156,12 +1061,6 @@ class SkylightCalendarCard extends HTMLElement {
     const normalizedDayStyles = this.normalizeDayStyles(config.day_styles || []);
     const normalizedHeaderColor = this.normalizeSingleColor(config.header_color);
     const normalizedHeaderTextColor = this.normalizeSingleColor(config.header_text_color);
-    const normalizedSharedCustomEventColors = this.normalizePreferenceColorMap(config.shared_custom_event_colors || {});
-    const normalizedSharedCustomEventColorMeta = this.normalizePreferenceColorMetaMap(
-      config.shared_custom_event_color_meta || {},
-      normalizedSharedCustomEventColors
-    );
-    const normalizedSharedRecentCustomColors = this.normalizePreferenceColorList(config.shared_recent_custom_colors || []);
     const hasConfiguredHeaderBackgroundOpacity = config.header_background_opacity !== undefined && config.header_background_opacity !== null && config.header_background_opacity !== '';
     const normalizedHeaderBackgroundOpacity = hasConfiguredHeaderBackgroundOpacity
       ? this.normalizeBackgroundOpacity(config.header_background_opacity, 0)
@@ -1230,10 +1129,7 @@ class SkylightCalendarCard extends HTMLElement {
       event_font_colors: normalizedEventFontColors, // Per-calendar font colors for event bubble text
       event_styles: normalizedEventStyles, // Per-event styling rules with match logic
       day_styles: normalizedDayStyles, // Per-day styling rules
-      enable_custom_event_colors: config.enable_custom_event_colors !== false, // Enable local/shared custom event colors
-      shared_custom_event_colors: normalizedSharedCustomEventColors, // Dashboard-shared custom event colors
-      shared_custom_event_color_meta: normalizedSharedCustomEventColorMeta, // Dashboard-shared custom color metadata used for pruning
-      shared_recent_custom_colors: normalizedSharedRecentCustomColors, // Dashboard-shared recent custom colors
+      enable_custom_event_colors: config.enable_custom_event_colors !== false, // Enable custom event colors
       hide_times_for_calendars: config.hide_times_for_calendars || [], // Hide times in schedule view for specific calendars
       show_current_time_bar: config.show_current_time_bar || false, // Show a "now" indicator in schedule view
       use_24hr_schedule: config.use_24hr_schedule ?? false, // Use 24-hour time notation in schedule view
@@ -1274,25 +1170,12 @@ class SkylightCalendarCard extends HTMLElement {
         : null,
       event_styles: normalizedEventStyles,
       day_styles: normalizedDayStyles,
-      enable_custom_event_colors: config.enable_custom_event_colors !== false,
-      shared_custom_event_colors: normalizedSharedCustomEventColors,
-      shared_custom_event_color_meta: normalizedSharedCustomEventColorMeta,
-      shared_recent_custom_colors: normalizedSharedRecentCustomColors
+      enable_custom_event_colors: config.enable_custom_event_colors !== false
     };
     this._resolvedPreferenceStorageKey = this._config.preference_storage_key
       ? null
       : previousResolvedPreferenceStorageKey;
-    this._sharedPreferenceMigrationAttempted = false;
-    this._sharedPreferenceGarbageCollectionAttempted = false;
     this._viewMode = this._config.default_view;
-    if (!this._config.enable_custom_event_colors) {
-      if (this._sharedPreferenceSaveTimer) {
-        clearTimeout(this._sharedPreferenceSaveTimer);
-        this._sharedPreferenceSaveTimer = null;
-      }
-      this._queuedSharedPreferenceState = null;
-      this.clearPendingSharedPreferenceOverlay();
-    }
     this.applyThemeMode(this._config.color_scheme);
     this._hiddenCalendars = new Set(
       Array.from(previousHiddenCalendars).filter((entityId) => this._config.entities.includes(entityId))
@@ -1366,8 +1249,6 @@ class SkylightCalendarCard extends HTMLElement {
       }
     }
 
-    this.maybePromoteLocalPreferencesToShared();
-    this.maybeGarbageCollectSharedPreferences();
     this.ensureWeatherForecastSubscription();
     this.refreshWeatherForecastData();
 
@@ -1419,50 +1300,6 @@ class SkylightCalendarCard extends HTMLElement {
     }, {});
   }
 
-  normalizePreferenceColorMap(colorMap) {
-    if (!colorMap || typeof colorMap !== 'object' || Array.isArray(colorMap)) return {};
-
-    return Object.entries(colorMap).reduce((acc, [storageKey, color]) => {
-      const normalizedKey = String(storageKey || '').trim();
-      const normalizedColor = this.colorToHex(color) || this.normalizeSingleColor(color);
-      if (normalizedKey && normalizedColor) {
-        acc[normalizedKey] = normalizedColor;
-      }
-      return acc;
-    }, {});
-  }
-
-  normalizePreferenceColorList(colors) {
-    if (!Array.isArray(colors)) return [];
-
-    return colors
-      .map((color) => this.colorToHex(color) || this.normalizeHexColorInput(color) || this.normalizeSingleColor(color))
-      .filter((color) => typeof color === 'string' && !!color)
-      .filter((color, index, array) => array.indexOf(color) === index)
-      .slice(0, 12);
-  }
-
-  normalizePreferenceColorMetaMap(metaMap, colorMap = null) {
-    if (!metaMap || typeof metaMap !== 'object' || Array.isArray(metaMap)) return {};
-
-    const allowedKeys = colorMap && typeof colorMap === 'object' && !Array.isArray(colorMap)
-      ? new Set(Object.keys(colorMap))
-      : null;
-
-    return Object.entries(metaMap).reduce((acc, [storageKey, touchedAt]) => {
-      const normalizedKey = String(storageKey || '').trim();
-      const normalizedTouchedAt = Math.floor(Number(touchedAt));
-      if (!normalizedKey || !Number.isFinite(normalizedTouchedAt) || normalizedTouchedAt <= 0) {
-        return acc;
-      }
-      if (allowedKeys && !allowedKeys.has(normalizedKey)) {
-        return acc;
-      }
-      acc[normalizedKey] = normalizedTouchedAt;
-      return acc;
-    }, {});
-  }
-
   normalizeSingleColor(colorValue) {
     if (colorValue === undefined || colorValue === null) {
       return colorValue;
@@ -1477,7 +1314,7 @@ class SkylightCalendarCard extends HTMLElement {
       .replace(/\s*\/\s*/g, '/')
       .replace(/\s+/g, ' ')
       .trim();
-    const mappedColor = SkylightCalendarCard.COMMON_NAMED_COLORS[normalizedName];
+    const mappedColor = NAMED_COLORS[normalizedName];
     if (mappedColor) {
       return mappedColor;
     }
@@ -1503,6 +1340,13 @@ class SkylightCalendarCard extends HTMLElement {
     }
 
     return null;
+  }
+
+  // Permissive hex normalizer: accepts named colors, "#abc", "#aabbcc",
+  // and "abc"/"aabbcc" (no leading hash). Returns canonical "#RRGGBB" or null.
+  // This is the unified replacement for the colorToHex || normalizeHexColorInput pattern.
+  toCanonicalHex(value) {
+    return this.colorToHex(value) || this.normalizeHexColorInput(value);
   }
 
   colorToRgb(color) {
@@ -2039,18 +1883,9 @@ class SkylightCalendarCard extends HTMLElement {
   getStoredCustomColor(event) {
     if (!this.isCustomEventColorFeatureEnabled() || !event) return null;
 
-    const seriesKey = this.getCustomColorSeriesKey(event);
-    const sharedCustomEventColors = this.getEffectiveSharedCustomEventColors();
-    if (seriesKey && sharedCustomEventColors[seriesKey]) {
-      return sharedCustomEventColors[seriesKey];
-    }
+    const { seriesKey, eventKey } = this.getCustomColorStorageKeys(event);
     if (seriesKey && this._customEventColors[seriesKey]) {
       return this._customEventColors[seriesKey];
-    }
-
-    const eventKey = this.getCustomColorEventKey(event);
-    if (eventKey && sharedCustomEventColors[eventKey]) {
-      return sharedCustomEventColors[eventKey];
     }
     if (eventKey && this._customEventColors[eventKey]) {
       return this._customEventColors[eventKey];
@@ -2067,9 +1902,19 @@ class SkylightCalendarCard extends HTMLElement {
     return !!this.getStoredCustomColor(event);
   }
 
-  setLocalStoredCustomColor(event, color) {
-    const storageKey = this.getCustomColorSeriesKey(event) || this.getCustomColorEventKey(event);
-    const normalizedColor = this.colorToHex(color) || this.normalizeSingleColor(color);
+  getCustomColorStorageKeys(event) {
+    return {
+      seriesKey: this.getCustomColorSeriesKey(event),
+      eventKey: this.getCustomColorEventKey(event)
+    };
+  }
+
+  setStoredCustomColor(event, color) {
+    if (!this.isCustomEventColorFeatureEnabled()) return false;
+
+    const { seriesKey, eventKey } = this.getCustomColorStorageKeys(event);
+    const storageKey = seriesKey || eventKey;
+    const normalizedColor = this.toCanonicalHex(color);
     if (!storageKey || !normalizedColor) {
       return false;
     }
@@ -2083,12 +1928,11 @@ class SkylightCalendarCard extends HTMLElement {
     return true;
   }
 
-  clearLocalStoredCustomColor(event) {
-    const candidateKeys = [
-      this.getCustomColorSeriesKey(event),
-      this.getCustomColorEventKey(event)
-    ].filter(Boolean);
+  clearStoredCustomColor(event) {
+    if (!this.isCustomEventColorFeatureEnabled()) return false;
 
+    const { seriesKey, eventKey } = this.getCustomColorStorageKeys(event);
+    const candidateKeys = [seriesKey, eventKey].filter(Boolean);
     if (candidateKeys.length === 0) {
       return false;
     }
@@ -2110,43 +1954,6 @@ class SkylightCalendarCard extends HTMLElement {
     this._customEventColors = nextCustomEventColors;
     this.persistPreferences();
     return true;
-  }
-
-  getCustomEventColorPresets() {
-    return [
-      '#FF6B6B',
-      '#EF4444',
-      '#DC2626',
-      '#B91C1C',
-      '#F97316',
-      '#EA580C',
-      '#FB923C',
-      '#F59E0B',
-      '#4ECDC4',
-      '#14B8A6',
-      '#0D9488',
-      '#10B981',
-      '#22C55E',
-      '#84CC16',
-      '#A3E635',
-      '#45B7D1',
-      '#06B6D4',
-      '#0EA5E9',
-      '#3B82F6',
-      '#2563EB',
-      '#1D4ED8',
-      '#FFA07A',
-      '#98D8C8',
-      '#F7DC6F',
-      '#BB8FCE',
-      '#85C1E2',
-      '#6366F1',
-      '#4F46E5',
-      '#7C3AED',
-      '#8B5CF6',
-      '#A855F7',
-      '#EC4899'
-    ];
   }
 
   normalizeHexColorInput(value) {
@@ -2211,16 +2018,11 @@ class SkylightCalendarCard extends HTMLElement {
       return [];
     }
 
-    const sharedRecentColors = this.getEffectiveSharedRecentCustomColors();
-    if (sharedRecentColors.length > 0) {
-      return sharedRecentColors;
-    }
-
     return Array.isArray(this._recentCustomColors) ? this._recentCustomColors : [];
   }
 
   addRecentCustomColor(color) {
-    const normalizedColor = this.colorToHex(color) || this.normalizeHexColorInput(color);
+    const normalizedColor = this.toCanonicalHex(color);
     if (!normalizedColor) {
       return;
     }
@@ -2231,103 +2033,45 @@ class SkylightCalendarCard extends HTMLElement {
     ].slice(0, 12);
   }
 
-  removeLocalRecentCustomColor(color) {
-    const normalizedColor = this.colorToHex(color) || this.normalizeHexColorInput(color);
-    if (!normalizedColor) {
-      return false;
-    }
-
-    const nextRecentCustomColors = this.getRecentCustomColors().filter((entry) => entry !== normalizedColor);
-    if (nextRecentCustomColors.length === this.getRecentCustomColors().length) {
-      return false;
-    }
-
-    this._recentCustomColors = nextRecentCustomColors;
-    this.persistPreferences();
-    return true;
-  }
-
-  async saveRecentCustomColors(recentCustomColors) {
+  saveRecentCustomColors(recentCustomColors) {
     if (!this.isCustomEventColorFeatureEnabled()) {
       return false;
     }
 
-    const normalizedRecentCustomColors = this.normalizePreferenceColorList(recentCustomColors || []);
-    const currentRecentCustomColors = this.getRecentCustomColors();
-    const isUnchanged = normalizedRecentCustomColors.length === currentRecentCustomColors.length &&
-      normalizedRecentCustomColors.every((entry, index) => entry === currentRecentCustomColors[index]);
+    const normalized = (Array.isArray(recentCustomColors) ? recentCustomColors : [])
+      .map((color) => this.toCanonicalHex(color))
+      .filter((color) => typeof color === 'string' && !!color)
+      .filter((color, index, array) => array.indexOf(color) === index)
+      .slice(0, 12);
 
-    if (isUnchanged) {
+    const current = this.getRecentCustomColors();
+    if (normalized.length === current.length && normalized.every((entry, i) => entry === current[i])) {
       return true;
     }
 
-    this._recentCustomColors = normalizedRecentCustomColors;
+    this._recentCustomColors = normalized;
     this.persistPreferences();
-    const optimisticSharedState = this.getOptimisticSharedPreferenceState({
-      sharedCustomEventColors: this.getEffectiveSharedCustomEventColors(),
-      sharedCustomEventColorMeta: this.getEffectiveSharedCustomEventColorMeta(),
-      sharedRecentCustomColors: normalizedRecentCustomColors
-    });
-    this.queueSharedPreferenceSave(optimisticSharedState);
     return true;
   }
 
-  async removeRecentCustomColor(color) {
-    const normalizedColor = this.colorToHex(color) || this.normalizeHexColorInput(color);
+  removeRecentCustomColor(color) {
+    const normalizedColor = this.toCanonicalHex(color);
     if (!normalizedColor) {
       return false;
     }
 
-    const nextRecentCustomColors = this.getRecentCustomColors().filter((entry) => entry !== normalizedColor);
-    if (nextRecentCustomColors.length === this.getRecentCustomColors().length) {
+    const next = this.getRecentCustomColors().filter((entry) => entry !== normalizedColor);
+    if (next.length === this.getRecentCustomColors().length) {
       return false;
     }
 
-    return this.saveRecentCustomColors(nextRecentCustomColors);
-  }
-
-  hasSharedCustomColorWriteAccess() {
-    return this._hass?.user?.is_admin === true;
-  }
-
-  getSharedPreferenceCardKey() {
-    const explicitPreferenceStorageKey = typeof this._config?.preference_storage_key === 'string'
-      ? this._config.preference_storage_key.trim()
-      : '';
-    if (explicitPreferenceStorageKey) {
-      return explicitPreferenceStorageKey;
-    }
-
-    const sharedKey = typeof this._config?._shared_config_key === 'string'
-      ? this._config._shared_config_key.trim()
-      : '';
-    if (sharedKey) {
-      return sharedKey;
-    }
-
-    return null;
-  }
-
-  createSharedPreferenceCardKey() {
-    return `skylight-shared-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    this._recentCustomColors = next;
+    this.persistPreferences();
+    return true;
   }
 
   isCustomEventColorFeatureEnabled() {
     return this._config?.enable_custom_event_colors !== false;
-  }
-
-  getSharedCustomColorEntryLimit() {
-    return 250;
-  }
-
-  getSharedCustomColorRetentionMs() {
-    return 180 * 24 * 60 * 60 * 1000;
-  }
-
-  extractEntityIdFromPreferenceStorageKey(storageKey) {
-    const parts = String(storageKey || '').split('|');
-    const entityId = parts[1];
-    return typeof entityId === 'string' && entityId.startsWith('calendar.') ? entityId : null;
   }
 
   getCurrentDashboardRoutePath() {
@@ -2382,580 +2126,6 @@ class SkylightCalendarCard extends HTMLElement {
     return this.normalizeViewPathSegment(remainingPath.split('/')[0]);
   }
 
-  cloneConfigValue(value) {
-    if (typeof structuredClone === 'function') {
-      return structuredClone(value);
-    }
-
-    return JSON.parse(JSON.stringify(value));
-  }
-
-  cardConfigMatchesSharedPreferenceTarget(cardConfig) {
-    if (!cardConfig || cardConfig.type !== 'custom:skylight-calendar-card') {
-      return false;
-    }
-
-    const explicitPreferenceStorageKey = typeof this._config?.preference_storage_key === 'string'
-      ? this._config.preference_storage_key.trim()
-      : '';
-    if (explicitPreferenceStorageKey && cardConfig.preference_storage_key === explicitPreferenceStorageKey) {
-      return true;
-    }
-
-    const sharedCardKey = typeof this._config?._shared_config_key === 'string'
-      ? this._config._shared_config_key.trim()
-      : '';
-    if (sharedCardKey && cardConfig._shared_config_key === sharedCardKey) {
-      return true;
-    }
-
-    const currentEntities = Array.isArray(this._config?.entities) ? this._config.entities.join('|') : '';
-    const candidateEntities = Array.isArray(cardConfig.entities) ? cardConfig.entities.join('|') : '';
-    const currentTitle = String(this._config?.title || '').trim();
-    const candidateTitle = String(cardConfig.title || '').trim();
-
-    return currentEntities && currentEntities === candidateEntities && currentTitle === candidateTitle;
-  }
-
-  getCurrentDashboardViewCandidates(views) {
-    if (!Array.isArray(views) || views.length === 0) {
-      return [];
-    }
-
-    const currentViewPath = this.getCurrentDashboardViewPath();
-    if (currentViewPath) {
-      return views.filter((view) => this.normalizeViewPathSegment(view?.path) === currentViewPath);
-    }
-
-    return [views[0], ...views.slice(1).filter((view) => this.normalizeViewPathSegment(view?.path) === null)];
-  }
-
-  findSharedPreferenceCardInDashboardConfig(lovelaceConfig) {
-    const searchCards = (cards) => {
-      if (!Array.isArray(cards)) return null;
-
-      for (let index = 0; index < cards.length; index += 1) {
-        const cardConfig = cards[index];
-        if (this.cardConfigMatchesSharedPreferenceTarget(cardConfig)) {
-          return { parentArray: cards, index, cardConfig };
-        }
-
-        if (Array.isArray(cardConfig?.cards)) {
-          const nestedMatch = searchCards(cardConfig.cards);
-          if (nestedMatch) return nestedMatch;
-        }
-
-        if (cardConfig?.card) {
-          const nestedSingleMatch = searchCards([cardConfig.card]);
-          if (nestedSingleMatch) return nestedSingleMatch;
-        }
-      }
-
-      return null;
-    };
-
-    const searchViews = (viewsToSearch) => {
-      for (const view of viewsToSearch) {
-        const directMatch = searchCards(view?.cards);
-        if (directMatch) return directMatch;
-
-        if (Array.isArray(view?.sections)) {
-          for (const section of view.sections) {
-            const sectionMatch = searchCards(section?.cards);
-            if (sectionMatch) return sectionMatch;
-          }
-        }
-      }
-
-      return null;
-    };
-
-    const views = Array.isArray(lovelaceConfig?.views) ? lovelaceConfig.views : [];
-    const candidateViews = this.getCurrentDashboardViewCandidates(views);
-    const candidateMatch = searchViews(candidateViews);
-    if (candidateMatch) {
-      return candidateMatch;
-    }
-
-    if (this.getSharedPreferenceCardKey()) {
-      return searchViews(views);
-    }
-
-    return null;
-  }
-
-  applySharedPreferenceStateToConfig(sharedCustomEventColors, sharedRecentCustomColors, sharedCustomEventColorMeta = {}, sharedCardKey = null) {
-    this._config = {
-      ...this._config,
-      shared_custom_event_colors: this.normalizePreferenceColorMap(sharedCustomEventColors || {}),
-      shared_custom_event_color_meta: this.normalizePreferenceColorMetaMap(sharedCustomEventColorMeta || {}, sharedCustomEventColors || {}),
-      shared_recent_custom_colors: this.normalizePreferenceColorList(sharedRecentCustomColors || []),
-      ...(sharedCardKey ? { _shared_config_key: sharedCardKey } : {})
-    };
-  }
-
-  getEffectiveSharedCustomEventColors() {
-    if (this._pendingSharedCustomEventColors !== null) {
-      return this.normalizePreferenceColorMap(this._pendingSharedCustomEventColors);
-    }
-
-    return this.normalizePreferenceColorMap(this._config?.shared_custom_event_colors || {});
-  }
-
-  getEffectiveSharedCustomEventColorMeta() {
-    if (this._pendingSharedCustomEventColorMeta !== null) {
-      return this.normalizePreferenceColorMetaMap(this._pendingSharedCustomEventColorMeta, this.getEffectiveSharedCustomEventColors());
-    }
-
-    return this.normalizePreferenceColorMetaMap(this._config?.shared_custom_event_color_meta || {}, this.getEffectiveSharedCustomEventColors());
-  }
-
-  getEffectiveSharedRecentCustomColors() {
-    if (this._pendingSharedRecentCustomColors !== null) {
-      return this.normalizePreferenceColorList(this._pendingSharedRecentCustomColors);
-    }
-
-    return this.normalizePreferenceColorList(this._config?.shared_recent_custom_colors || []);
-  }
-
-  prepareSharedPreferenceState({ sharedCustomEventColors, sharedRecentCustomColors, sharedCustomEventColorMeta = {}, touchedKeys = [] }) {
-    const now = Date.now();
-    const normalizedSharedCustomEventColors = this.normalizePreferenceColorMap(sharedCustomEventColors || {});
-    const normalizedSharedRecentCustomColors = this.normalizePreferenceColorList(sharedRecentCustomColors || []);
-    const normalizedSharedCustomEventColorMeta = this.normalizePreferenceColorMetaMap(
-      sharedCustomEventColorMeta || {},
-      normalizedSharedCustomEventColors
-    );
-
-    Object.keys(normalizedSharedCustomEventColors).forEach((storageKey) => {
-      if (!normalizedSharedCustomEventColorMeta[storageKey]) {
-        normalizedSharedCustomEventColorMeta[storageKey] = now;
-      }
-    });
-
-    touchedKeys
-      .map((storageKey) => String(storageKey || '').trim())
-      .filter(Boolean)
-      .forEach((storageKey) => {
-        if (normalizedSharedCustomEventColors[storageKey]) {
-          normalizedSharedCustomEventColorMeta[storageKey] = now;
-        }
-      });
-
-    const configuredEntities = new Set(
-      Array.isArray(this._config?.entities)
-        ? this._config.entities.filter((entityId) => typeof entityId === 'string' && entityId.startsWith('calendar.'))
-        : []
-    );
-
-    Object.keys(normalizedSharedCustomEventColors).forEach((storageKey) => {
-      const entityId = this.extractEntityIdFromPreferenceStorageKey(storageKey);
-      if (!entityId || !configuredEntities.has(entityId)) {
-        delete normalizedSharedCustomEventColors[storageKey];
-        delete normalizedSharedCustomEventColorMeta[storageKey];
-      }
-    });
-
-    const retentionMs = this.getSharedCustomColorRetentionMs();
-    Object.keys(normalizedSharedCustomEventColors).forEach((storageKey) => {
-      const touchedAt = normalizedSharedCustomEventColorMeta[storageKey];
-      if (Number.isFinite(touchedAt) && touchedAt > 0 && (now - touchedAt) > retentionMs) {
-        delete normalizedSharedCustomEventColors[storageKey];
-        delete normalizedSharedCustomEventColorMeta[storageKey];
-      }
-    });
-
-    const maxEntries = this.getSharedCustomColorEntryLimit();
-    const sortedKeys = Object.keys(normalizedSharedCustomEventColors)
-      .sort((leftKey, rightKey) => {
-        const leftTouchedAt = normalizedSharedCustomEventColorMeta[leftKey] || 0;
-        const rightTouchedAt = normalizedSharedCustomEventColorMeta[rightKey] || 0;
-        if (rightTouchedAt !== leftTouchedAt) {
-          return rightTouchedAt - leftTouchedAt;
-        }
-        return leftKey.localeCompare(rightKey);
-      });
-
-    if (sortedKeys.length > maxEntries) {
-      const allowedKeys = new Set(sortedKeys.slice(0, maxEntries));
-      Object.keys(normalizedSharedCustomEventColors).forEach((storageKey) => {
-        if (!allowedKeys.has(storageKey)) {
-          delete normalizedSharedCustomEventColors[storageKey];
-          delete normalizedSharedCustomEventColorMeta[storageKey];
-        }
-      });
-    }
-
-    return {
-      sharedCustomEventColors: normalizedSharedCustomEventColors,
-      sharedRecentCustomColors: normalizedSharedRecentCustomColors,
-      sharedCustomEventColorMeta: this.normalizePreferenceColorMetaMap(
-        normalizedSharedCustomEventColorMeta,
-        normalizedSharedCustomEventColors
-      )
-    };
-  }
-
-  sharedPreferenceStatesEqual(leftState, rightState) {
-    if (!leftState || !rightState) {
-      return false;
-    }
-
-    if ((leftState.sharedCardKey || null) !== (rightState.sharedCardKey || null)) {
-      return false;
-    }
-
-    const leftCustomEventColors = this.normalizePreferenceColorMap(leftState.sharedCustomEventColors || {});
-    const rightCustomEventColors = this.normalizePreferenceColorMap(rightState.sharedCustomEventColors || {});
-    const leftRecentCustomColors = this.normalizePreferenceColorList(leftState.sharedRecentCustomColors || []);
-    const rightRecentCustomColors = this.normalizePreferenceColorList(rightState.sharedRecentCustomColors || []);
-    const leftCustomEventColorMeta = this.normalizePreferenceColorMetaMap(leftState.sharedCustomEventColorMeta || {}, leftCustomEventColors);
-    const rightCustomEventColorMeta = this.normalizePreferenceColorMetaMap(rightState.sharedCustomEventColorMeta || {}, rightCustomEventColors);
-
-    const leftColorKeys = Object.keys(leftCustomEventColors).sort();
-    const rightColorKeys = Object.keys(rightCustomEventColors).sort();
-    if (leftColorKeys.length !== rightColorKeys.length) {
-      return false;
-    }
-
-    if (!leftColorKeys.every((key, index) => (
-      key === rightColorKeys[index] &&
-      leftCustomEventColors[key] === rightCustomEventColors[key] &&
-      (leftCustomEventColorMeta[key] || 0) === (rightCustomEventColorMeta[key] || 0)
-    ))) {
-      return false;
-    }
-
-    if (leftRecentCustomColors.length !== rightRecentCustomColors.length) {
-      return false;
-    }
-
-    return leftRecentCustomColors.every((entry, index) => entry === rightRecentCustomColors[index]);
-  }
-
-  sharedPreferencePayloadMatchesPending(sharedPreferenceState) {
-    return this.sharedPreferenceStatesEqual({
-      sharedCardKey: this._pendingSharedPreferenceCardKey,
-      sharedCustomEventColors: this._pendingSharedCustomEventColors,
-      sharedCustomEventColorMeta: this._pendingSharedCustomEventColorMeta,
-      sharedRecentCustomColors: this._pendingSharedRecentCustomColors
-    }, sharedPreferenceState);
-  }
-
-  clearPendingSharedPreferenceOverlay(sharedPreferenceState = null) {
-    if (sharedPreferenceState && !this.sharedPreferencePayloadMatchesPending(sharedPreferenceState)) {
-      return;
-    }
-
-    this._pendingSharedPreferenceCardKey = null;
-    this._pendingSharedCustomEventColors = null;
-    this._pendingSharedCustomEventColorMeta = null;
-    this._pendingSharedRecentCustomColors = null;
-  }
-
-  getOptimisticSharedPreferenceState({ sharedCustomEventColors, sharedRecentCustomColors, sharedCustomEventColorMeta = {}, touchedKeys = [] }) {
-    const sharedCardKey = this._pendingSharedPreferenceCardKey || this.getSharedPreferenceCardKey() || this.createSharedPreferenceCardKey();
-    const preparedSharedState = this.prepareSharedPreferenceState({
-      sharedCustomEventColors,
-      sharedRecentCustomColors,
-      sharedCustomEventColorMeta,
-      touchedKeys
-    });
-
-    this._pendingSharedPreferenceCardKey = sharedCardKey;
-    this._pendingSharedCustomEventColors = preparedSharedState.sharedCustomEventColors;
-    this._pendingSharedCustomEventColorMeta = preparedSharedState.sharedCustomEventColorMeta;
-    this._pendingSharedRecentCustomColors = preparedSharedState.sharedRecentCustomColors;
-
-    return {
-      sharedCardKey,
-      sharedCustomEventColors: preparedSharedState.sharedCustomEventColors,
-      sharedCustomEventColorMeta: preparedSharedState.sharedCustomEventColorMeta,
-      sharedRecentCustomColors: preparedSharedState.sharedRecentCustomColors
-    };
-  }
-
-  queueSharedPreferenceSave(sharedPreferenceState) {
-    if (!sharedPreferenceState) {
-      return false;
-    }
-
-    this._queuedSharedPreferenceState = {
-      sharedCardKey: sharedPreferenceState.sharedCardKey || this.getSharedPreferenceCardKey() || this.createSharedPreferenceCardKey(),
-      sharedCustomEventColors: this.normalizePreferenceColorMap(sharedPreferenceState.sharedCustomEventColors || {}),
-      sharedCustomEventColorMeta: this.normalizePreferenceColorMetaMap(
-        sharedPreferenceState.sharedCustomEventColorMeta || {},
-        sharedPreferenceState.sharedCustomEventColors || {}
-      ),
-      sharedRecentCustomColors: this.normalizePreferenceColorList(sharedPreferenceState.sharedRecentCustomColors || [])
-    };
-
-    return this.scheduleSharedPreferenceSave();
-  }
-
-  async flushQueuedSharedPreferenceSave({ force = false } = {}) {
-    if (!this._hass?.callWS) {
-      return false;
-    }
-
-    if (this._sharedPreferenceSaveTimer) {
-      clearTimeout(this._sharedPreferenceSaveTimer);
-      this._sharedPreferenceSaveTimer = null;
-    }
-
-    if (this._sharedPreferenceSyncInFlight) {
-      try {
-        await this._sharedPreferenceSyncInFlight;
-      } catch (error) {
-        // The current save path already logs failures; continue and retry the latest queued state.
-      }
-    }
-
-    if (this.shouldDeferSharedPreferenceSave({ force })) {
-      this.scheduleSharedPreferenceSave({ force });
-      return false;
-    }
-
-    const queuedState = this._queuedSharedPreferenceState;
-    if (!queuedState) {
-      return false;
-    }
-
-    this._queuedSharedPreferenceState = null;
-    const saveSucceeded = await this.saveSharedPreferenceState(queuedState);
-
-    if (saveSucceeded && !this._queuedSharedPreferenceState) {
-      this.clearPendingSharedPreferenceOverlay(queuedState);
-    }
-
-    if (this._queuedSharedPreferenceState) {
-      this.scheduleSharedPreferenceSave();
-    }
-
-    return saveSucceeded;
-  }
-
-  async saveSharedPreferenceState({ sharedCustomEventColors, sharedRecentCustomColors, sharedCustomEventColorMeta = {}, sharedCardKey = null }) {
-    if (!this._hass?.callWS || this._sharedPreferenceSyncInFlight) {
-      return false;
-    }
-
-    const resolvedSharedCardKey = sharedCardKey || this.getSharedPreferenceCardKey() || this.createSharedPreferenceCardKey();
-    const preparedSharedState = this.prepareSharedPreferenceState({
-      sharedCustomEventColors,
-      sharedRecentCustomColors,
-      sharedCustomEventColorMeta
-    });
-    const normalizedSharedCustomEventColors = preparedSharedState.sharedCustomEventColors;
-    const normalizedSharedCustomEventColorMeta = preparedSharedState.sharedCustomEventColorMeta;
-    const normalizedSharedRecentCustomColors = preparedSharedState.sharedRecentCustomColors;
-    const dashboardUrlPath = this.getDashboardConfigUrlPath();
-
-    const syncPromise = (async () => {
-      try {
-        const lovelaceConfig = await this._hass.callWS({
-          type: 'lovelace/config',
-          url_path: dashboardUrlPath
-        });
-        if (!lovelaceConfig || typeof lovelaceConfig !== 'object') {
-          return false;
-        }
-
-        const nextLovelaceConfig = this.cloneConfigValue(lovelaceConfig);
-        const match = this.findSharedPreferenceCardInDashboardConfig(nextLovelaceConfig);
-        if (!match) {
-          return false;
-        }
-
-        const currentSharedState = {
-          sharedCardKey: typeof match.cardConfig?._shared_config_key === 'string' ? match.cardConfig._shared_config_key.trim() : null,
-          sharedCustomEventColors: match.cardConfig?.shared_custom_event_colors || {},
-          sharedCustomEventColorMeta: match.cardConfig?.shared_custom_event_color_meta || {},
-          sharedRecentCustomColors: match.cardConfig?.shared_recent_custom_colors || []
-        };
-        const nextSharedState = {
-          sharedCardKey: resolvedSharedCardKey,
-          sharedCustomEventColors: normalizedSharedCustomEventColors,
-          sharedCustomEventColorMeta: normalizedSharedCustomEventColorMeta,
-          sharedRecentCustomColors: normalizedSharedRecentCustomColors
-        };
-        if (this.sharedPreferenceStatesEqual(currentSharedState, nextSharedState)) {
-          this.applySharedPreferenceStateToConfig(
-            normalizedSharedCustomEventColors,
-            normalizedSharedRecentCustomColors,
-            normalizedSharedCustomEventColorMeta,
-            resolvedSharedCardKey
-          );
-          return true;
-        }
-
-        const nextCardConfig = {
-          ...match.cardConfig,
-          _shared_config_key: resolvedSharedCardKey,
-          shared_custom_event_colors: normalizedSharedCustomEventColors,
-          shared_custom_event_color_meta: normalizedSharedCustomEventColorMeta,
-          shared_recent_custom_colors: normalizedSharedRecentCustomColors
-        };
-        match.parentArray[match.index] = nextCardConfig;
-
-        await this._hass.callWS({
-          type: 'lovelace/config/save',
-          url_path: dashboardUrlPath,
-          config: nextLovelaceConfig
-        });
-
-        this.applySharedPreferenceStateToConfig(
-          normalizedSharedCustomEventColors,
-          normalizedSharedRecentCustomColors,
-          normalizedSharedCustomEventColorMeta,
-          resolvedSharedCardKey
-        );
-        return true;
-      } catch (error) {
-        console.warn('Failed to save shared custom color preferences to dashboard config:', error);
-        return false;
-      } finally {
-        this._sharedPreferenceSyncInFlight = null;
-      }
-    })();
-
-    this._sharedPreferenceSyncInFlight = syncPromise;
-    return syncPromise;
-  }
-
-  maybePromoteLocalPreferencesToShared() {
-    if (this._sharedPreferenceMigrationAttempted || !this._hass?.callWS || !this.isCustomEventColorFeatureEnabled()) {
-      return;
-    }
-
-    this._sharedPreferenceMigrationAttempted = true;
-
-    const sharedCustomEventColors = this.getEffectiveSharedCustomEventColors();
-    const sharedRecentCustomColors = this.getEffectiveSharedRecentCustomColors();
-    const hasSharedPreferences = Object.keys(sharedCustomEventColors).length > 0 || sharedRecentCustomColors.length > 0;
-    const hasLocalPreferences = Object.keys(this._customEventColors || {}).length > 0 || (this._recentCustomColors || []).length > 0;
-
-    if (hasSharedPreferences || !hasLocalPreferences) {
-      return;
-    }
-
-    const optimisticSharedState = this.getOptimisticSharedPreferenceState({
-      sharedCustomEventColors: this._customEventColors,
-      sharedCustomEventColorMeta: this.getEffectiveSharedCustomEventColorMeta(),
-      sharedRecentCustomColors: this._recentCustomColors
-    });
-    this.queueSharedPreferenceSave(optimisticSharedState);
-  }
-
-  maybeGarbageCollectSharedPreferences() {
-    if (this._sharedPreferenceGarbageCollectionAttempted || !this._hass?.callWS || !this.isCustomEventColorFeatureEnabled()) {
-      return;
-    }
-
-    this._sharedPreferenceGarbageCollectionAttempted = true;
-
-    const currentSharedState = {
-      sharedCardKey: this.getSharedPreferenceCardKey(),
-      sharedCustomEventColors: this.getEffectiveSharedCustomEventColors(),
-      sharedCustomEventColorMeta: this.getEffectiveSharedCustomEventColorMeta(),
-      sharedRecentCustomColors: this.getEffectiveSharedRecentCustomColors()
-    };
-    const preparedSharedState = this.prepareSharedPreferenceState(currentSharedState);
-
-    if (this.sharedPreferenceStatesEqual(currentSharedState, {
-      sharedCardKey: this.getSharedPreferenceCardKey(),
-      ...preparedSharedState
-    })) {
-      return;
-    }
-
-    const optimisticSharedState = this.getOptimisticSharedPreferenceState(preparedSharedState);
-    this.queueSharedPreferenceSave(optimisticSharedState);
-  }
-
-  async setStoredCustomColor(event, color) {
-    if (!this.isCustomEventColorFeatureEnabled()) {
-      return false;
-    }
-
-    const storageKey = this.getCustomColorSeriesKey(event) || this.getCustomColorEventKey(event);
-    const normalizedColor = this.colorToHex(color) || this.normalizeSingleColor(color);
-    if (!storageKey || !normalizedColor) {
-      return false;
-    }
-
-    const nextSharedCustomEventColors = {
-      ...this.getEffectiveSharedCustomEventColors(),
-      [storageKey]: normalizedColor
-    };
-    const nextRecentCustomColors = [
-      normalizedColor,
-      ...this.getRecentCustomColors().filter((entry) => entry !== normalizedColor)
-    ].slice(0, 12);
-
-    this._customEventColors = {
-      ...this._customEventColors,
-      [storageKey]: normalizedColor
-    };
-    this._recentCustomColors = nextRecentCustomColors;
-    this.persistPreferences();
-    const optimisticSharedState = this.getOptimisticSharedPreferenceState({
-      sharedCustomEventColors: nextSharedCustomEventColors,
-      sharedCustomEventColorMeta: this.getEffectiveSharedCustomEventColorMeta(),
-      sharedRecentCustomColors: nextRecentCustomColors,
-      touchedKeys: [storageKey]
-    });
-    this.queueSharedPreferenceSave(optimisticSharedState);
-    return true;
-  }
-
-  async clearStoredCustomColor(event) {
-    if (!this.isCustomEventColorFeatureEnabled()) {
-      return false;
-    }
-
-    const candidateKeys = [
-      this.getCustomColorSeriesKey(event),
-      this.getCustomColorEventKey(event)
-    ].filter(Boolean);
-
-    if (candidateKeys.length === 0) {
-      return false;
-    }
-
-    const nextSharedCustomEventColors = { ...this.getEffectiveSharedCustomEventColors() };
-    const nextSharedCustomEventColorMeta = { ...this.getEffectiveSharedCustomEventColorMeta() };
-    let sharedChanged = false;
-
-    candidateKeys.forEach((key) => {
-      if (Object.prototype.hasOwnProperty.call(nextSharedCustomEventColors, key)) {
-        delete nextSharedCustomEventColors[key];
-        delete nextSharedCustomEventColorMeta[key];
-        sharedChanged = true;
-      }
-    });
-
-    if (sharedChanged) {
-      const nextLocalCustomEventColors = { ...this._customEventColors };
-      candidateKeys.forEach((key) => {
-        if (Object.prototype.hasOwnProperty.call(nextLocalCustomEventColors, key)) {
-          delete nextLocalCustomEventColors[key];
-        }
-      });
-
-      this._customEventColors = nextLocalCustomEventColors;
-      this.persistPreferences();
-      const optimisticSharedState = this.getOptimisticSharedPreferenceState({
-        sharedCustomEventColors: nextSharedCustomEventColors,
-        sharedCustomEventColorMeta: nextSharedCustomEventColorMeta,
-        sharedRecentCustomColors: this.getRecentCustomColors()
-      });
-      this.queueSharedPreferenceSave(optimisticSharedState);
-      return true;
-    }
-
-    return this.clearLocalStoredCustomColor(event);
-  }
 
   getResolvedSingleEventBackgroundColor(event, candidates = null) {
     if (!event) return null;
@@ -3367,11 +2537,6 @@ class SkylightCalendarCard extends HTMLElement {
   connectedCallback() {
     window.addEventListener('resize', this._handleViewportResize);
     window.visualViewport?.addEventListener('resize', this._handleViewportResize);
-    window.addEventListener('pointerdown', this._handleSharedPreferenceInteraction, { passive: true });
-    window.addEventListener('touchstart', this._handleSharedPreferenceInteraction, { passive: true });
-    window.addEventListener('keydown', this._handleSharedPreferenceInteraction);
-    window.addEventListener('pagehide', this._handleSharedPreferencePageHide);
-    document.addEventListener('visibilitychange', this._handleSharedPreferenceVisibilityChange);
     this.attachSystemThemeListener();
     this.render();
   }
@@ -3379,11 +2544,6 @@ class SkylightCalendarCard extends HTMLElement {
   disconnectedCallback() {
     window.removeEventListener('resize', this._handleViewportResize);
     window.visualViewport?.removeEventListener('resize', this._handleViewportResize);
-    window.removeEventListener('pointerdown', this._handleSharedPreferenceInteraction);
-    window.removeEventListener('touchstart', this._handleSharedPreferenceInteraction);
-    window.removeEventListener('keydown', this._handleSharedPreferenceInteraction);
-    window.removeEventListener('pagehide', this._handleSharedPreferencePageHide);
-    document.removeEventListener('visibilitychange', this._handleSharedPreferenceVisibilityChange);
     this.detachSystemThemeListener();
     this.teardownWeatherForecastSubscription();
     if (this._modalVisibilityObserver) {
@@ -10130,55 +9290,45 @@ class SkylightCalendarCard extends HTMLElement {
     });
   }
 
-  showCustomColorModal(event, { onCloseBack = null, onApplied = null } = {}) {
-    const modal = this.getRootElementById('event-modal');
-    const content = this.getRootElementById('modal-content');
-    const currentCustomColor = this.getStoredCustomColor(event);
-    const hasSharedWriteAccess = this.hasSharedCustomColorWriteAccess();
-    const previewColor = currentCustomColor || this.getEventBackgroundColor(event) || event?.color || '#3b82f6';
-    const normalizedCurrentCustomColor = this.colorToHex(currentCustomColor) || this.normalizeHexColorInput(currentCustomColor);
-    const initialPickerColor = this.colorToHex(previewColor) || '#3B82F6';
-    const initialPickerHsv = this.hexToHsv(initialPickerColor);
-    const colorHint = this.isRecurringEventInstance(event) ? this.t('customColorSeriesHint') : this.t('customColorEventHint');
-    const presetButtons = this.getCustomEventColorPresets()
-      .map((color) => `
+  _renderCustomColorButton(color, isSelected, ariaLabel) {
+    return `
+      <button
+        type="button"
+        class="custom-color-option ${isSelected ? 'selected' : ''}"
+        data-custom-event-color="${color}"
+        style="--custom-color-option: ${color};"
+        aria-label="${ariaLabel} ${color}"
+        title="${color}">
+      </button>
+    `;
+  }
+
+  _renderRecentCustomColorItem(color, isSelected) {
+    return `
+      <div class="recent-custom-color-item">
+        ${this._renderCustomColorButton(color, isSelected, this.t('recentColors'))}
         <button
           type="button"
-          class="custom-color-option ${normalizedCurrentCustomColor === color ? 'selected' : ''}"
-          data-custom-event-color="${color}"
-          style="--custom-color-option: ${color};"
-          aria-label="${this.t('customColor')} ${color}"
-          title="${color}">
+          class="remove-recent-custom-color-btn"
+          data-remove-custom-recent-color="${color}"
+          aria-label="${this.t('removeRecentColor')} ${color}"
+          title="${this.t('removeRecentColor')}">
+          ×
         </button>
-      `)
-      .join('');
-    const recentCustomColorsDraft = [...this.getRecentCustomColors()];
-    let recentCustomColorsDirty = false;
-    const renderRecentButtons = () => recentCustomColorsDraft
-      .map((color) => `
-        <div class="recent-custom-color-item">
-          <button
-            type="button"
-            class="custom-color-option ${normalizedCurrentCustomColor === color ? 'selected' : ''}"
-            data-custom-event-color="${color}"
-            style="--custom-color-option: ${color};"
-            aria-label="${this.t('recentColors')} ${color}"
-            title="${color}">
-          </button>
-          <button
-            type="button"
-            class="remove-recent-custom-color-btn"
-            data-remove-custom-recent-color="${color}"
-            aria-label="${this.t('removeRecentColor')} ${color}"
-            title="${this.t('removeRecentColor')}">
-            ×
-          </button>
-        </div>
-      `)
-      .join('');
-    const recentButtons = renderRecentButtons();
+      </div>
+    `;
+  }
 
-    content.innerHTML = `
+  _renderCustomColorModalHtml({
+    colorHint,
+    recentButtons,
+    presetButtons,
+    initialPickerHsv,
+    initialPickerColor,
+    previewColor,
+    currentCustomColor
+  }) {
+    return `
       <div class="modal-header">
         <div>
           <h3 class="modal-title">${this.t('customColorTitle')}</h3>
@@ -10187,12 +9337,6 @@ class SkylightCalendarCard extends HTMLElement {
         <button class="modal-close" id="close-modal">×</button>
       </div>
       <div class="modal-body">
-        ${!hasSharedWriteAccess ? `
-          <div class="info-banner warning custom-color-access-warning">
-            ${this.escapeHtml(this.t('customColorAdminRequired'))}
-          </div>
-        ` : ''}
-
         <div class="custom-color-section" id="recent-custom-color-section" ${recentButtons ? '' : 'style="display:none;"'}>
             <div class="custom-color-section-title">${this.t('recentColors')}</div>
             <div class="custom-color-grid" id="recent-custom-color-grid">
@@ -10252,6 +9396,73 @@ class SkylightCalendarCard extends HTMLElement {
         </div>
       </div>
     `;
+  }
+
+  // Wires pointer-drag on the color wheel; calls onPointerEvent for every position
+  // change. Handles capture, dragging state, and clean release.
+  _attachCustomColorWheelDrag(wheelEl, onPointerEvent) {
+    if (!wheelEl) return;
+
+    let isDragging = false;
+    let activePointerId = null;
+
+    wheelEl.addEventListener('pointerdown', (e) => {
+      isDragging = true;
+      activePointerId = e.pointerId;
+      wheelEl.setPointerCapture(e.pointerId);
+      onPointerEvent(e);
+    });
+
+    wheelEl.addEventListener('pointermove', (e) => {
+      if (!isDragging) return;
+      onPointerEvent(e);
+    });
+
+    const stop = (e = null) => {
+      isDragging = false;
+      if (e && activePointerId !== null && wheelEl.hasPointerCapture(e.pointerId)) {
+        wheelEl.releasePointerCapture(e.pointerId);
+      }
+      activePointerId = null;
+    };
+
+    wheelEl.addEventListener('pointerup', stop);
+    wheelEl.addEventListener('pointercancel', stop);
+    wheelEl.addEventListener('lostpointercapture', () => {
+      isDragging = false;
+      activePointerId = null;
+    });
+  }
+
+  showCustomColorModal(event, { onCloseBack = null, onApplied = null } = {}) {
+    const modal = this.getRootElementById('event-modal');
+    const content = this.getRootElementById('modal-content');
+    const currentCustomColor = this.getStoredCustomColor(event);
+    const previewColor = currentCustomColor || this.getEventBackgroundColor(event) || event?.color || '#3b82f6';
+    const normalizedCurrentCustomColor = this.toCanonicalHex(currentCustomColor);
+    const initialPickerColor = this.colorToHex(previewColor) || '#3B82F6';
+    const initialPickerHsv = this.hexToHsv(initialPickerColor);
+    const colorHint = this.isRecurringEventInstance(event) ? this.t('customColorSeriesHint') : this.t('customColorEventHint');
+
+    const presetButtons = CUSTOM_EVENT_COLOR_PRESETS
+      .map((color) => this._renderCustomColorButton(color, normalizedCurrentCustomColor === color, this.t('customColor')))
+      .join('');
+
+    const recentCustomColorsDraft = [...this.getRecentCustomColors()];
+    let recentCustomColorsDirty = false;
+    const renderRecentButtons = () => recentCustomColorsDraft
+      .map((color) => this._renderRecentCustomColorItem(color, normalizedCurrentCustomColor === color))
+      .join('');
+
+    content.innerHTML = this._renderCustomColorModalHtml({
+      colorHint,
+      recentButtons: renderRecentButtons(),
+      presetButtons,
+      initialPickerHsv,
+      initialPickerColor,
+      previewColor,
+      currentCustomColor
+    });
 
     modal.classList.add('show');
     this.setModalBackHandler(onCloseBack);
@@ -10282,31 +9493,26 @@ class SkylightCalendarCard extends HTMLElement {
       color: initialPickerColor
     };
 
-    const hideCustomColorError = () => {
-      if (customColorFormError) {
+    const setError = (message) => {
+      if (!customColorFormError) return;
+      if (message) {
+        customColorFormError.textContent = message;
+        customColorFormError.style.display = 'block';
+      } else {
         customColorFormError.style.display = 'none';
         customColorFormError.textContent = '';
       }
     };
 
-    const showCustomColorError = (message) => {
-      if (customColorFormError) {
-        customColorFormError.textContent = message;
-        customColorFormError.style.display = 'block';
-      }
-    };
-
     const syncCustomColorDraft = (color) => {
       const normalizedHex = this.normalizeHexColorInput(color);
-      if (!normalizedHex) {
-        return false;
-      }
+      if (!normalizedHex) return false;
 
       pickerState.color = normalizedHex;
       if (customColorHexInput) customColorHexInput.value = normalizedHex;
       if (customColorPreview) customColorPreview.style.setProperty('--custom-color-preview', normalizedHex);
       if (customColorValue) customColorValue.textContent = normalizedHex;
-      hideCustomColorError();
+      setError(null);
       return true;
     };
 
@@ -10328,31 +9534,6 @@ class SkylightCalendarCard extends HTMLElement {
       syncCustomColorDraft(pickerState.color);
     };
 
-    const updateCustomColorPickerFromWheelEvent = (pointerEvent) => {
-      if (!customColorPickerWheel) return;
-
-      const rect = customColorPickerWheel.getBoundingClientRect();
-      const x = pointerEvent.clientX - rect.left - rect.width / 2;
-      const y = pointerEvent.clientY - rect.top - rect.height / 2;
-      const radius = rect.width / 2;
-      const distance = Math.min(Math.sqrt((x * x) + (y * y)), radius);
-
-      pickerState.s = radius > 0 ? distance / radius : 0;
-      const hue = ((Math.atan2(y, x) * 180) / Math.PI) + 90;
-      pickerState.h = hue < 0 ? hue + 360 : hue;
-      pickerState.color = this.hsvToHex(pickerState.h, pickerState.s, pickerState.v);
-      syncCustomColorPickerUi();
-    };
-
-    const applyCustomColorSelection = async (color) => {
-      await persistQueuedRecentCustomColors();
-      if (!await this.setStoredCustomColor(event, color)) {
-        showCustomColorError(this.t('invalidHexColor'));
-        return;
-      }
-      completeCustomColorChange();
-    };
-
     const completeCustomColorChange = () => {
       this._activeModalBackHandler = null;
       modal.classList.remove('show');
@@ -10364,52 +9545,24 @@ class SkylightCalendarCard extends HTMLElement {
       }
     };
 
-    const persistQueuedRecentCustomColors = async () => {
-      if (!recentCustomColorsDirty) {
-        return true;
-      }
-
-      const saved = await this.saveRecentCustomColors(recentCustomColorsDraft);
-      if (saved) {
-        recentCustomColorsDirty = false;
-      }
+    const persistQueuedRecentCustomColors = () => {
+      if (!recentCustomColorsDirty) return true;
+      const saved = this.saveRecentCustomColors(recentCustomColorsDraft);
+      if (saved) recentCustomColorsDirty = false;
       return saved;
     };
 
-    const bindRecentCustomColorControls = () => {
-      recentCustomColorGrid?.querySelectorAll('[data-custom-event-color]').forEach((button) => {
-        button.addEventListener('click', async () => {
-          await applyCustomColorSelection(button.getAttribute('data-custom-event-color'));
-        });
-      });
-
-      recentCustomColorGrid?.querySelectorAll('[data-remove-custom-recent-color]').forEach((button) => {
-        button.addEventListener('click', (clickEvent) => {
-          clickEvent.preventDefault();
-          clickEvent.stopPropagation();
-
-          const normalizedColor = this.colorToHex(button.getAttribute('data-remove-custom-recent-color')) ||
-            this.normalizeHexColorInput(button.getAttribute('data-remove-custom-recent-color'));
-          if (!normalizedColor) {
-            return;
-          }
-
-          const nextRecentCustomColors = recentCustomColorsDraft.filter((entry) => entry !== normalizedColor);
-          if (nextRecentCustomColors.length === recentCustomColorsDraft.length) {
-            return;
-          }
-
-          recentCustomColorsDraft.splice(0, recentCustomColorsDraft.length, ...nextRecentCustomColors);
-          recentCustomColorsDirty = true;
-          syncRecentCustomColorDraftUi();
-        });
-      });
+    const applyCustomColorSelection = (color) => {
+      persistQueuedRecentCustomColors();
+      if (!this.setStoredCustomColor(event, color)) {
+        setError(this.t('invalidHexColor'));
+        return;
+      }
+      completeCustomColorChange();
     };
 
     const syncRecentCustomColorDraftUi = () => {
-      if (!recentCustomColorSection || !recentCustomColorGrid) {
-        return;
-      }
+      if (!recentCustomColorSection || !recentCustomColorGrid) return;
 
       if (recentCustomColorsDraft.length === 0) {
         recentCustomColorSection.style.display = 'none';
@@ -10422,56 +9575,61 @@ class SkylightCalendarCard extends HTMLElement {
       bindRecentCustomColorControls();
     };
 
-    this.getRootElementById('close-modal')?.addEventListener('click', async () => {
-      await persistQueuedRecentCustomColors();
+    const bindRecentCustomColorControls = () => {
+      recentCustomColorGrid?.querySelectorAll('[data-custom-event-color]').forEach((button) => {
+        button.addEventListener('click', () => {
+          applyCustomColorSelection(button.getAttribute('data-custom-event-color'));
+        });
+      });
+
+      recentCustomColorGrid?.querySelectorAll('[data-remove-custom-recent-color]').forEach((button) => {
+        button.addEventListener('click', (clickEvent) => {
+          clickEvent.preventDefault();
+          clickEvent.stopPropagation();
+
+          const normalizedColor = this.toCanonicalHex(button.getAttribute('data-remove-custom-recent-color'));
+          if (!normalizedColor) return;
+
+          const next = recentCustomColorsDraft.filter((entry) => entry !== normalizedColor);
+          if (next.length === recentCustomColorsDraft.length) return;
+
+          recentCustomColorsDraft.splice(0, recentCustomColorsDraft.length, ...next);
+          recentCustomColorsDirty = true;
+          syncRecentCustomColorDraftUi();
+        });
+      });
+    };
+
+    this.getRootElementById('close-modal')?.addEventListener('click', () => {
+      persistQueuedRecentCustomColors();
       closeCustomColorModal();
     });
-    this.getRootElementById('cancel-custom-color-btn')?.addEventListener('click', async () => {
-      await persistQueuedRecentCustomColors();
+    this.getRootElementById('cancel-custom-color-btn')?.addEventListener('click', () => {
+      persistQueuedRecentCustomColors();
       closeCustomColorModal();
     });
 
     this._root.querySelectorAll('[data-custom-event-color]').forEach((button) => {
-      if (button.closest('#recent-custom-color-grid')) {
-        return;
-      }
-      button.addEventListener('click', async () => {
-        await applyCustomColorSelection(button.getAttribute('data-custom-event-color'));
+      if (button.closest('#recent-custom-color-grid')) return;
+      button.addEventListener('click', () => {
+        applyCustomColorSelection(button.getAttribute('data-custom-event-color'));
       });
     });
     bindRecentCustomColorControls();
 
-    if (customColorPickerWheel) {
-      let isDraggingPicker = false;
-      let activePointerId = null;
+    this._attachCustomColorWheelDrag(customColorPickerWheel, (pointerEvent) => {
+      const rect = customColorPickerWheel.getBoundingClientRect();
+      const x = pointerEvent.clientX - rect.left - rect.width / 2;
+      const y = pointerEvent.clientY - rect.top - rect.height / 2;
+      const radius = rect.width / 2;
+      const distance = Math.min(Math.sqrt((x * x) + (y * y)), radius);
 
-      customColorPickerWheel.addEventListener('pointerdown', (pointerEvent) => {
-        isDraggingPicker = true;
-        activePointerId = pointerEvent.pointerId;
-        customColorPickerWheel.setPointerCapture(pointerEvent.pointerId);
-        updateCustomColorPickerFromWheelEvent(pointerEvent);
-      });
-
-      customColorPickerWheel.addEventListener('pointermove', (pointerEvent) => {
-        if (!isDraggingPicker) return;
-        updateCustomColorPickerFromWheelEvent(pointerEvent);
-      });
-
-      const stopDraggingPicker = (pointerEvent = null) => {
-        isDraggingPicker = false;
-        if (pointerEvent && activePointerId !== null && customColorPickerWheel.hasPointerCapture(pointerEvent.pointerId)) {
-          customColorPickerWheel.releasePointerCapture(pointerEvent.pointerId);
-        }
-        activePointerId = null;
-      };
-
-      customColorPickerWheel.addEventListener('pointerup', stopDraggingPicker);
-      customColorPickerWheel.addEventListener('pointercancel', stopDraggingPicker);
-      customColorPickerWheel.addEventListener('lostpointercapture', () => {
-        isDraggingPicker = false;
-        activePointerId = null;
-      });
-    }
+      pickerState.s = radius > 0 ? distance / radius : 0;
+      const hue = ((Math.atan2(y, x) * 180) / Math.PI) + 90;
+      pickerState.h = hue < 0 ? hue + 360 : hue;
+      pickerState.color = this.hsvToHex(pickerState.h, pickerState.s, pickerState.v);
+      syncCustomColorPickerUi();
+    });
 
     customColorBrightnessInput?.addEventListener('input', (inputEvent) => {
       pickerState.v = Number(inputEvent.target.value) / 100;
@@ -10479,43 +9637,35 @@ class SkylightCalendarCard extends HTMLElement {
       syncCustomColorPickerUi();
     });
 
-    customColorHexInput?.addEventListener('input', (inputEvent) => {
-      const normalizedHex = this.normalizeHexColorInput(inputEvent.target.value);
-      if (normalizedHex) {
-        const hsv = this.hexToHsv(normalizedHex);
-        pickerState.h = hsv.h;
-        pickerState.s = hsv.s;
-        pickerState.v = hsv.v;
-        pickerState.color = normalizedHex;
-        syncCustomColorPickerUi();
-      }
+    const handleHexInputUpdate = (rawValue) => {
+      const normalizedHex = this.normalizeHexColorInput(rawValue);
+      if (!normalizedHex) return;
+      const hsv = this.hexToHsv(normalizedHex);
+      pickerState.h = hsv.h;
+      pickerState.s = hsv.s;
+      pickerState.v = hsv.v;
+      pickerState.color = normalizedHex;
+      syncCustomColorPickerUi();
+    };
+    customColorHexInput?.addEventListener('input', (e) => handleHexInputUpdate(e.target.value));
+    customColorHexInput?.addEventListener('change', (e) => {
+      handleHexInputUpdate(e.target.value);
+      const normalizedHex = this.normalizeHexColorInput(e.target.value);
+      if (normalizedHex) syncCustomColorDraft(normalizedHex);
     });
 
-    customColorHexInput?.addEventListener('change', (inputEvent) => {
-      const normalizedHex = this.normalizeHexColorInput(inputEvent.target.value);
-      if (normalizedHex) {
-        const hsv = this.hexToHsv(normalizedHex);
-        pickerState.h = hsv.h;
-        pickerState.s = hsv.s;
-        pickerState.v = hsv.v;
-        pickerState.color = normalizedHex;
-        syncCustomColorDraft(normalizedHex);
-        syncCustomColorPickerUi();
-      }
-    });
-
-    this.getRootElementById('apply-custom-color-btn')?.addEventListener('click', async () => {
+    this.getRootElementById('apply-custom-color-btn')?.addEventListener('click', () => {
       const normalizedHex = this.normalizeHexColorInput(customColorHexInput?.value);
       if (!normalizedHex) {
-        showCustomColorError(this.t('invalidHexColor'));
+        setError(this.t('invalidHexColor'));
         return;
       }
-      await applyCustomColorSelection(normalizedHex);
+      applyCustomColorSelection(normalizedHex);
     });
 
-    this.getRootElementById('clear-custom-color-btn')?.addEventListener('click', async () => {
-      await persistQueuedRecentCustomColors();
-      if (!await this.clearStoredCustomColor(event)) {
+    this.getRootElementById('clear-custom-color-btn')?.addEventListener('click', () => {
+      persistQueuedRecentCustomColors();
+      if (!this.clearStoredCustomColor(event)) {
         closeCustomColorModal();
         return;
       }
